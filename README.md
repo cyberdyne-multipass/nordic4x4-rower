@@ -11,6 +11,14 @@ Bluetooth-SIG-Standard) mit dem Rudergerät, ganz ohne Cloud oder Herstellersoft
 ![Dashboard während eines Nordic-4x4-Trainings](docs/dashboard-screenshot.png)
 *Dashboard im Demo-Modus: Herzfrequenz- und Pace-Verlauf mit Phasenfärbung und Sollbereich.*
 
+## Installation
+
+Fertige, signierte APK zum direkten Installieren (kein Compiler nötig):
+**[Neueste Version herunterladen](https://github.com/cyberdyne-multipass/nordic4x4-rower/releases/latest)**
+
+Auf dem Android-Gerät herunterladen und öffnen; falls gefragt, Installation aus unbekannten
+Quellen erlauben (normale Android-Warnung bei Apps außerhalb des Play Store).
+
 ## Kompatibilität
 
 Entwickelt und getestet mit einem **WaterRower S4 + ComModule**. Da FTMS ein offener,
