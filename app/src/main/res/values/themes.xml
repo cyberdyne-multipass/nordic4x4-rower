@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.N44R" parent="android:Theme.Material.NoActionBar" />
+</resources>

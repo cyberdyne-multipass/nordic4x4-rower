@@ -1,0 +1,4 @@
+<resources>
+    <!-- matches the dark blue of the brand icon so the adaptive mask blends seamlessly -->
+    <color name="ic_launcher_background">#0E3556</color>
+</resources>

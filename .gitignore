@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# Android Studio project-level (keep the shared ones, ignore machine-specific)
+.idea/*
+!.idea/gradle.xml
+!.idea/misc.xml
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
