@@ -8,6 +8,9 @@ Intervalltraining mit eigenen Sollbereichen (Pace oder Herzfrequenz) nutzbar.
 Verbindet sich direkt per Bluetooth LE (FTMS – Fitness Machine Service, offener
 Bluetooth-SIG-Standard) mit dem Rudergerät, ganz ohne Cloud oder Herstellersoftware.
 
+![Dashboard während eines Nordic-4x4-Trainings](docs/dashboard-screenshot.png)
+*Dashboard im Demo-Modus: Herzfrequenz- und Pace-Verlauf mit Phasenfärbung und Sollbereich.*
+
 ## Kompatibilität
 
 Entwickelt und getestet mit einem **WaterRower S4 + ComModule**. Da FTMS ein offener,

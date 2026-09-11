@@ -6,6 +6,11 @@ captures/
 .cxx/
 local.properties
 
+# signing secrets - never commit
+keystore.properties
+*.jks
+*.keystore
+
 # Android Studio project-level (keep the shared ones, ignore machine-specific)
 .idea/*
 !.idea/gradle.xml

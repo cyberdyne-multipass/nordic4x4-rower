@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +8,15 @@ plugins {
 }
 
 val buildStamp: Long = System.currentTimeMillis()
+
+// Release signing: reads from keystore.properties (git-ignored, never committed - see
+// .gitignore). File is optional so the project still opens/syncs for anyone who clones the
+// repo without it; only a real `assembleRelease`/`bundleRelease` build requires it.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(FileInputStream(keystorePropsFile))
+}
 
 android {
     namespace = "com.n44r.app"
@@ -19,9 +31,23 @@ android {
         buildConfigField("long", "BUILD_TIMESTAMP", "${buildStamp}L")
     }
 
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProps["storeFile"] as String)
+                storePassword = keystoreProps["storePassword"] as String
+                keyAlias = keystoreProps["keyAlias"] as String
+                keyPassword = keystoreProps["keyPassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
