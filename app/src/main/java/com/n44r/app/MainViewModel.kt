@@ -15,6 +15,8 @@ import com.n44r.app.ble.RawLog
 import com.n44r.app.ble.RowerBleManager
 import com.n44r.app.ble.RrLog
 import com.n44r.app.ble.HrDeviceInfo
+import com.n44r.app.ble.LinkQuality
+import com.n44r.app.ble.SignalLevel
 import com.n44r.app.data.AppPrefs
 import com.n44r.app.export.SummaryImageGenerator
 import com.n44r.app.fit.FitWriter
@@ -41,7 +43,12 @@ data class LinkStatus(
     /** HR link is alive but the sensor only sends invalid values (0) - a watch/strap issue. */
     val hrSensorSendsInvalid: Boolean = false,
     /** Chest strap reports no skin contact (electrodes dry / strap loose). */
-    val hrNoContact: Boolean = false
+    val hrNoContact: Boolean = false,
+    val rowerQuality: LinkQuality = LinkQuality.NONE,
+    val hrQuality: LinkQuality = LinkQuality.NONE,
+    /** Signal has been weak for >= 10 s (but data still arrives) -> early yellow hint. */
+    val rowerWeak: Boolean = false,
+    val hrWeak: Boolean = false
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -108,6 +115,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var lastHrReconnectMs = 0L
     private var lastDemoHrMs = 0L
     private var demoHrDropUntilMs = 0L
+    private var rowerWeakSince = 0L
+    private var hrWeakSince = 0L
+    private var qualityLogTick = 0
     private class AlertTracker { var since = 0L; var lastSound = 0L; var count = 0 }
     private val rowerAlert = AlertTracker()
     private val hrAlert = AlertTracker()
@@ -365,7 +375,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         updateAlert(rowerAlert, rowerLost, now, "Ruderdaten", AlertSounds::rowerLost)
         updateAlert(hrAlert, hrLost, now, "Herzfrequenz", AlertSounds::heartRateLost)
 
+        // --- signal quality: early warning before a drop-out + periodic log line for analysis
+        val rq = rowerBle.quality.value
+        val hq = heartRateBle.quality.value
+        rowerWeakSince = if (rq.level == SignalLevel.WEAK && !rowerLost) (rowerWeakSince.takeIf { it > 0 } ?: now) else 0L
+        hrWeakSince = if (hq.level == SignalLevel.WEAK && !hrLost) (hrWeakSince.takeIf { it > 0 } ?: now) else 0L
+        if (++qualityLogTick % 10 == 0) { // every 5 s
+            rawLog.line("SIGNAL", "Rower ${rq.describe()}" + if (heartRateEnabled.value) " | HF ${hq.describe()}" else "")
+        }
+
         linkStatus.value = LinkStatus(
+            rowerQuality = rq, hrQuality = hq,
+            rowerWeak = rowerWeakSince > 0 && now - rowerWeakSince >= 10_000,
+            hrWeak = hrWeakSince > 0 && now - hrWeakSince >= 10_000,
             rowerLost = rowerLost, rowerSilentSec = (rowerSilent / 1000).toInt(),
             rowerState = rowerBle.connectionState.value,
             hrExpected = hrExpected, hrLost = hrLost, hrSilentSec = (hrSilent / 1000).toInt(),

@@ -7,7 +7,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
 import com.n44r.app.ble.ConnectionState
+import com.n44r.app.ble.LinkQuality
+import com.n44r.app.ble.SignalLevel
 import com.n44r.app.session.IntervalConfig
 import com.n44r.app.session.TargetType
 
@@ -21,6 +25,25 @@ fun ConnectionBadge(state: ConnectionState) {
         ConnectionState.IDLE -> "Nicht verbunden" to Color(0xFF888888)
     }
     Text(text, color = color)
+}
+
+/** Three-bar signal indicator (like a phone's reception bars) with an optional label. */
+@Composable
+fun SignalBars(label: String, quality: LinkQuality, showDetails: Boolean = false, fontSize: Int = 12) {
+    val bars = when (quality.level) {
+        SignalLevel.GOOD -> 3; SignalLevel.OK -> 2; SignalLevel.WEAK -> 1; SignalLevel.NONE -> 0
+    }
+    val color = when (quality.level) {
+        SignalLevel.GOOD -> Color(0xFF3DBE7A); SignalLevel.OK -> Color(0xFFD9C441)
+        SignalLevel.WEAK -> Color(0xFFE5533D); SignalLevel.NONE -> Color(0xFF777777)
+    }
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = Color(0xCCFFFFFF), fontSize = fontSize.sp, modifier = Modifier.padding(end = 4.dp))
+        for (i in 1..3) {
+            Box(Modifier.width(5.dp).height((4 + i * 4).dp).background(if (i <= bars) color else Color(0x44FFFFFF)))
+        }
+        if (showDetails) Text("  " + quality.describe(), color = color, fontSize = fontSize.sp)
+    }
 }
 
 @Composable

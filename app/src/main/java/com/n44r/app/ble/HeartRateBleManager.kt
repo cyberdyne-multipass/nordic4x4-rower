@@ -74,6 +74,25 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     @Volatile var lastValidMs: Long = 0L
         private set
 
+    // Link quality: chest straps send ~1/s (expected rate known once skin contact reporting
+    // identifies a strap); the Apple bridge sends irregularly -> judged by RSSI only.
+    private val qualityTracker = LinkQualityTracker(expectedIntervalMs = null)
+    val quality = MutableStateFlow(LinkQuality.NONE)
+    @Volatile private var setupDone = false
+
+    init {
+        scope.launch {
+            var tick = 0
+            while (isActive) {
+                delay(1000)
+                val connected = connectionState.value == ConnectionState.CONNECTED
+                if (connected && setupDone && tick % 2 == 0) runCatching { gatt?.readRemoteRssi() }
+                quality.value = if (connected) qualityTracker.snapshot() else LinkQuality.NONE
+                tick++
+            }
+        }
+    }
+
     private fun preferred(): Pair<String, String>? = DevicePrefs.getPreferredHr(context)
 
     private fun matchesPreferred(device: BluetoothDevice, name: String?): Boolean {
@@ -240,6 +259,9 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             if (g != gatt) { runCatching { g.close() }; return }
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 rawLog.event("HF: verbunden")
+                setupDone = false
+                qualityTracker.reset()
+                qualityTracker.expectedIntervalMs = null
                 connectTimeoutJob?.cancel()
                 lastPacketMs = System.currentTimeMillis()
                 connectionState.value = ConnectionState.CONNECTED
@@ -274,8 +296,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             // notifications are set up -> now (one op at a time) read the sensor's battery level
-            g.getService(BleConstants.SERVICE_BATTERY)?.getCharacteristic(BleConstants.CHAR_BATTERY_LEVEL)
-                ?.let { runCatching { g.readCharacteristic(it) } }
+            val battery = g.getService(BleConstants.SERVICE_BATTERY)?.getCharacteristic(BleConstants.CHAR_BATTERY_LEVEL)
+            if (battery == null || runCatching { g.readCharacteristic(battery) }.getOrDefault(false) != true) setupDone = true
         }
 
         @Deprecated("Deprecated in API 33, still the one called on Android 12")
@@ -286,6 +308,11 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
                 batteryLevel.value = level
                 rawLog.event("HF: Sensor-Akku $level %")
             }
+            setupDone = true // from now on RSSI polling may use the GATT
+        }
+
+        override fun onReadRemoteRssi(g: BluetoothGatt, rssi: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) qualityTracker.onRssi(rssi)
         }
 
         @Deprecated("Deprecated in API 33, still the one called on Android 12")
@@ -297,6 +324,9 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             val m = HeartRateParser.parse(raw) ?: return
             val now = System.currentTimeMillis()
             lastPacketMs = now
+            qualityTracker.onPacket(now)
+            // a sensor that reports skin contact is a strap with a fixed ~1 s rate
+            if (m.skinContact != null && qualityTracker.expectedIntervalMs == null) qualityTracker.expectedIntervalMs = 1000L
             skinContact.value = m.skinContact
             if (m.rrMs.isNotEmpty()) {
                 if (!rrIntervalsSeen.value) {

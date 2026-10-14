@@ -61,6 +61,26 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
     /** Demo only: suppress emission until this time to simulate a rower-data outage. */
     @Volatile var demoDropUntilMs: Long = 0L
 
+    // Link quality: the S4 sends roughly every 1.0-1.3 s (measured 13.10.: 652 packets / 746 s)
+    private val qualityTracker = LinkQualityTracker(expectedIntervalMs = 1200L)
+    val quality = MutableStateFlow(LinkQuality.NONE)
+
+    init {
+        scope.launch {
+            var tick = 0
+            while (isActive) {
+                delay(1000)
+                val connected = connectionState.value == ConnectionState.CONNECTED
+                // RSSI poll every 2 s, only while no GATT op (notification setup) is in flight
+                if (connected && !isDemoMode.value && tick % 2 == 0 && !opInFlight && opQueue.isEmpty()) {
+                    runCatching { gatt?.readRemoteRssi() }
+                }
+                quality.value = if (connected) qualityTracker.snapshot() else LinkQuality.NONE
+                tick++
+            }
+        }
+    }
+
     fun start() {
         demoJob?.cancel()
         isDemoMode.value = false
@@ -80,6 +100,7 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
         isDemoMode.value = true
         connectionState.value = ConnectionState.CONNECTED
         lastNotificationMs = System.currentTimeMillis()
+        qualityTracker.reset()
         demoJob?.cancel()
         demoJob = scope.launch {
             var tick = fromTick
@@ -89,6 +110,7 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
                 tick++
                 if (System.currentTimeMillis() >= demoDropUntilMs) {
                     lastNotificationMs = System.currentTimeMillis()
+                    qualityTracker.onPacket()
                     rowerData.value = sample
                 }
                 delay((1000 / speedFactor).toLong())
@@ -197,6 +219,7 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
             if (g != gatt) { runCatching { g.close() }; return } // stale callback of a closed connection
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 rawLog.event("Rower: verbunden")
+                qualityTracker.reset()
                 connectTimeoutJob?.cancel()
                 reconnectAttempts = 0
                 connectionState.value = ConnectionState.CONNECTED
@@ -231,6 +254,7 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
             when (characteristic.uuid) {
                 BleConstants.CHAR_ROWER_DATA -> {
                     lastNotificationMs = System.currentTimeMillis()
+                    qualityTracker.onPacket()
                     rawLog.bytes("Rower Data", raw)
                     RowerDataParser.parse(raw)?.let { rowerData.value = it }
                 }
@@ -239,6 +263,10 @@ class RowerBleManager(private val context: Context, private val rawLog: RawLog) 
                     batteryLevel.value = raw.getOrNull(0)?.toInt()?.and(0xFF)
                 }
             }
+        }
+
+        override fun onReadRemoteRssi(g: BluetoothGatt, rssi: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) qualityTracker.onRssi(rssi)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {

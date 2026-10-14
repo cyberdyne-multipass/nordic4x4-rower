@@ -46,6 +46,8 @@ fun WaitingScreen(vm: MainViewModel) {
         Spacer(Modifier.height(28.dp))
         Text("Rudergerät: ", style = MaterialTheme.typography.labelMedium)
         ConnectionBadge(rowerState)
+        val rowerQ by vm.rowerBle.quality.collectAsState()
+        if (connected) SignalBars("Signal", rowerQ, showDetails = true, fontSize = 14)
         if (hrEnabled) {
             Spacer(Modifier.height(8.dp))
             Text("Herzfrequenz: ", style = MaterialTheme.typography.labelMedium)
@@ -65,6 +67,8 @@ fun WaitingScreen(vm: MainViewModel) {
                     style = MaterialTheme.typography.labelMedium,
                     color = if (hrBattery != null && hrBattery!! <= 15 || contact == false) Color(0xFFFFB74D) else Color.Unspecified
                 )
+                val hrQ by vm.heartRateBle.quality.collectAsState()
+                SignalBars("Signal", hrQ, showDetails = true, fontSize = 14)
             }
         }
         if (isDemo) {

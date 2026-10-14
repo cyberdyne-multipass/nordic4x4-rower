@@ -46,10 +46,18 @@ fun DashboardScreen(vm: MainViewModel) {
     }, label = "phaseColor")
 
     Column(Modifier.fillMaxSize().background(phaseColor)) {
-        Text(
-            "Build ${formatBuildStamp(BuildConfig.BUILD_TIMESTAMP)}",
-            color = Color(0x66FFFFFF), fontSize = 10.sp, modifier = Modifier.padding(4.dp)
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Build ${formatBuildStamp(BuildConfig.BUILD_TIMESTAMP)}", color = Color(0x66FFFFFF), fontSize = 10.sp)
+            Spacer(Modifier.weight(1f))
+            SignalBars("Rudergerät", link.rowerQuality)
+            if (link.hrExpected) {
+                Spacer(Modifier.width(20.dp))
+                SignalBars("HF", link.hrQuality)
+            }
+        }
         if (isDemo) {
             Text("🧪 DEMO-MODUS – simulierte Daten", color = Color.White, fontSize = 16.sp,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -223,6 +231,19 @@ private fun ConnectionBanner(link: LinkStatus) {
                 link.hrState == ConnectionState.CONNECTED -> "warte auf Werte…"
                 else -> "suche Sensor…"
             }
+        )
+    }
+    // early, calm hint: data still arrives but the signal is weak -> move the tablet before it drops
+    val hints = buildList {
+        if (link.rowerWeak) add("Signal zum Rudergerät schwach (${link.rowerQuality.describe()}) – Tablet näher / freie Sicht")
+        if (link.hrWeak) add("HF-Signal schwach (${link.hrQuality.describe()}) – Tablet möglichst vor dir, nicht hinter dir")
+    }
+    hints.forEach { msg ->
+        Text(
+            msg, color = Color(0xFF1A1A1A), fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+                .background(Color(0xFFFFD54F), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
     if (messages.isEmpty()) return
