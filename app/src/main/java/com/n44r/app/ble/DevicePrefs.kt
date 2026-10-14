@@ -29,4 +29,14 @@ object DevicePrefs {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_HR_ENABLED, enabled).apply()
     }
+
+    private const val KEY_WARN_SOUNDS = "warn_sounds_enabled"
+
+    fun getWarnSoundsEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WARN_SOUNDS, true)
+
+    fun saveWarnSoundsEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_WARN_SOUNDS, enabled).apply()
+    }
 }

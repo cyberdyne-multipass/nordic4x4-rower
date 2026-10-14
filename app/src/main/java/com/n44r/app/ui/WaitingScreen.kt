@@ -21,6 +21,7 @@ fun WaitingScreen(vm: MainViewModel) {
     val hrState by vm.heartRateBle.connectionState.collectAsState()
     val hrEnabled by vm.heartRateEnabled.collectAsState()
     val isDemo by vm.rowerBle.isDemoMode.collectAsState()
+    val resumeAt by vm.pendingResumeAtSec.collectAsState()
     val connected = rowerState == ConnectionState.CONNECTED
 
     Column(
@@ -29,10 +30,11 @@ fun WaitingScreen(vm: MainViewModel) {
         verticalArrangement = Arrangement.Center
     ) {
         if (connected) {
-            Text("Startklar", fontSize = 44.sp, fontWeight = FontWeight.Bold)
+            Text(if (resumeAt != null) "Bereit zum Fortsetzen" else "Startklar", fontSize = 44.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             Text(
-                "Ruder los, wenn du bereit bist – das Training startet beim ersten Schlag.",
+                if (resumeAt != null) "Das Training geht bei ${formatMmSs(resumeAt!!)} weiter – ruder einfach los."
+                else "Ruder los, wenn du bereit bist – das Training startet beim ersten Schlag.",
                 fontSize = 22.sp, textAlign = TextAlign.Center
             )
         } else {

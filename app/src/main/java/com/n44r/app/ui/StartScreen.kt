@@ -1,5 +1,8 @@
 package com.n44r.app.ui
 
+import android.content.Intent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -27,6 +30,9 @@ fun StartScreen(vm: MainViewModel) {
     val timeTarget by vm.timeTargetSec.collectAsState()
     val distTarget by vm.distanceTargetM.collectAsState()
     val metric by vm.mainMetric.collectAsState()
+    val resumable by vm.resumable.collectAsState()
+    val crash by vm.crashReport.collectAsState()
+    val context = LocalContext.current
 
     Column(
         Modifier.fillMaxSize().padding(32.dp),
@@ -65,10 +71,38 @@ fun StartScreen(vm: MainViewModel) {
             Text("Start", fontSize = 26.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(20.dp))
+        // An unfinished (crashed / killed) workout gets a prominent hint right below Start.
+        val unfinished = resumable.firstOrNull()?.takeIf { !it.finished }
+        if (unfinished != null) {
+            Text(
+                "Letztes Training wurde nicht beendet (${formatMmSs(unfinished.durationSec)} · ${unfinished.distanceM} m)",
+                color = Color(0xFFFFD54F), style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (resumable.isNotEmpty()) {
+                val label = "Workout fortsetzen…"
+                if (unfinished != null) Button(onClick = { vm.openResume() }) { Text(label) }
+                else OutlinedButton(onClick = { vm.openResume() }) { Text(label) }
+            }
             OutlinedButton(onClick = { vm.openSettings() }) { Text("Einstellungen") }
             OutlinedButton(onClick = { vm.openProfile() }) { Text("Profil") }
             OutlinedButton(onClick = { vm.startDemoMode() }) { Text("Demo-Modus") }
+        }
+        crash?.let { file ->
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Die App ist zuletzt abgestürzt.", color = Color(0xFFFF8A65), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = {
+                    val uri = vm.shareUri(context, file)
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Absturzbericht teilen"))
+                }) { Text("Bericht teilen") }
+                TextButton(onClick = { vm.dismissCrashReport() }) { Text("Ausblenden") }
+            }
         }
         Spacer(Modifier.height(24.dp))
         Text("Build ${formatBuildStamp(BuildConfig.BUILD_TIMESTAMP)}", style = MaterialTheme.typography.labelSmall)

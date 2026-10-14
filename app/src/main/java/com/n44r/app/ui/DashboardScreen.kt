@@ -1,8 +1,17 @@
 package com.n44r.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.n44r.app.LinkStatus
+import com.n44r.app.ble.ConnectionState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +38,7 @@ fun DashboardScreen(vm: MainViewModel) {
     val metric by vm.mainMetric.collectAsState()
     val isDemo by vm.rowerBle.isDemoMode.collectAsState()
     val profile by vm.profile.collectAsState()
+    val link by vm.linkStatus.collectAsState()
     val state = ui ?: return
 
     val phaseColor by animateColorAsState(colorForPhase(state.phaseType).let {
@@ -49,6 +59,7 @@ fun DashboardScreen(vm: MainViewModel) {
             state.phaseLabel, state.phaseType, state.phaseRemainingSec, state.phaseRemainingMeters,
             isPaused = state.isManuallyPaused || state.isAutoPaused, isAutoPaused = state.isAutoPaused
         )
+        ConnectionBanner(link)
 
         // Five equal tiles, main metric in the middle (2 left, 2 right), all the same size.
         // The main metric's own tile is dropped from the side list so nothing shows twice.
@@ -65,9 +76,10 @@ fun DashboardScreen(vm: MainViewModel) {
                 MetricTile(tileLabel(side[1]), mainMetricValue(side[1], state), Modifier.weight(1f), tileFont)
                 MetricTile(tileLabel(metric), mainMetricValue(metric, state), Modifier.weight(1f), tileFont, highlight = true)
                 MetricTile(tileLabel(side[2]), mainMetricValue(side[2], state), Modifier.weight(1f), tileFont)
-                MetricTile(
-                    "HF [bpm]", state.heartRateBpm?.toString() ?: "–", Modifier.weight(1f), tileFont,
-                    onClick = if (state.heartRateBpm == null) { { vm.retryHeartRate() } } else null
+                HeartRateTile(
+                    bpm = state.heartRateBpm, lost = link.hrExpected && link.hrLost,
+                    modifier = Modifier.weight(1f), fontSize = tileFont,
+                    onRetry = { vm.retryHeartRate() }
                 )
             }
         }
@@ -177,5 +189,80 @@ private fun DemoSpeedControls(vm: MainViewModel) {
         OutlinedButton(onClick = { vm.seekDemo(300) }, modifier = Modifier.padding(horizontal = 3.dp)) {
             Text("5 min ⏩", color = Color.White, fontSize = 12.sp)
         }
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Ausfall testen:", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp))
+        OutlinedButton(onClick = { vm.simulateRowerOutage() }, modifier = Modifier.padding(horizontal = 3.dp)) {
+            Text("Ruderdaten 12 s", color = Color.White, fontSize = 12.sp)
+        }
+        OutlinedButton(onClick = { vm.simulateHrOutage() }, modifier = Modifier.padding(horizontal = 3.dp)) {
+            Text("HF 15 s", color = Color.White, fontSize = 12.sp)
+        }
+    }
+}
+
+private val AlertRed = Color(0xFFD32F2F)
+
+/** Full-width, blinking warning bar - impossible to miss from the rowing seat. */
+@Composable
+private fun ConnectionBanner(link: LinkStatus) {
+    val messages = buildList {
+        if (link.rowerLost) add(
+            "⚠ KEINE DATEN VOM RUDERGERÄT seit ${link.rowerSilentSec} s – " +
+                (if (link.rowerState == ConnectionState.CONNECTED) "verbinde neu…" else "Verbindung wird wiederhergestellt…") +
+                " Zeit läuft nach, sobald Daten kommen"
+        )
+        if (link.hrExpected && link.hrLost) add(
+            "♥ KEINE HERZFREQUENZ seit ${link.hrSilentSec} s – " + when {
+                link.hrSensorSendsInvalid -> "Sensor/Uhr liefert keine Werte (0)"
+                link.hrState == ConnectionState.CONNECTED -> "warte auf Werte…"
+                else -> "suche Sensor…"
+            }
+        )
+    }
+    if (messages.isEmpty()) return
+    val blink = rememberInfiniteTransition(label = "blink")
+    val alpha by blink.animateFloat(
+        initialValue = 1f, targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "alpha"
+    )
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
+        messages.forEach { msg ->
+            Text(
+                msg, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    .background(AlertRed.copy(alpha = alpha), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeartRateTile(bpm: Int?, lost: Boolean, modifier: Modifier, fontSize: TextUnit, onRetry: () -> Unit) {
+    if (!lost) {
+        MetricTile("HF [bpm]", bpm?.toString() ?: "–", modifier, fontSize, onClick = if (bpm == null) onRetry else null)
+        return
+    }
+    val blink = rememberInfiniteTransition(label = "hrBlink")
+    val alpha by blink.animateFloat(
+        initialValue = 0.95f, targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse), label = "hrAlpha"
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(horizontal = 4.dp)
+            .background(AlertRed.copy(alpha = if (lost) alpha else 0.35f), RoundedCornerShape(10.dp))
+            .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+            .clickable(onClick = onRetry)
+            .padding(vertical = 2.dp)
+    ) {
+        Text("HF fehlt!", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("–", color = Color.White, fontSize = fontSize, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text("↻ neu verbinden", color = Color.White, fontSize = 11.sp)
     }
 }

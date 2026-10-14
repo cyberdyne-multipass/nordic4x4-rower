@@ -1,6 +1,7 @@
 package com.n44r.app.session
 
 data class RecordPoint(
+    /** Wall-clock time the sample arrived (used for HR physiology metrics). */
     val timestampMs: Long,
     val sessionElapsedSec: Int,
     val phaseType: PhaseType,
@@ -9,7 +10,9 @@ data class RecordPoint(
     val paceSecPer500m: Int?,
     val powerW: Int,
     val strokeRate: Float,
-    val heartRateBpm: Int?
+    val heartRateBpm: Int?,
+    /** Active (unpaused) session time in ms - the timeline used for charts, laps and FIT. */
+    val sessionElapsedMs: Long = sessionElapsedSec * 1000L
 )
 
 data class LapSummary(
@@ -36,7 +39,8 @@ data class SessionSummary(
     val workTarget: PhaseTarget,
     val restTarget: PhaseTarget,
     val laps: List<LapSummary>,
-    val records: List<RecordPoint>
+    val records: List<RecordPoint>,
+    val hrMetrics: HrMetrics = HrMetrics(emptyList())
 )
 
 data class SessionUiState(

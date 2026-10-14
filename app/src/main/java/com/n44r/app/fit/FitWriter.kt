@@ -1,5 +1,6 @@
 package com.n44r.app.fit
 
+import com.n44r.app.session.HrAnalysis
 import com.n44r.app.session.SessionSummary
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -90,15 +91,24 @@ object FitWriter {
         body.u8(7); body.u8(2); body.u8(0x84)
         body.u8(4); body.u8(1); body.u8(0x02)
         body.u8(3); body.u8(1); body.u8(0x02)
-        for (p in summary.records) {
+        // Record timestamps use the ACTIVE session timeline (start + unpaused elapsed time), the
+        // same timeline laps and session use - wall-clock timestamps made laps and records drift
+        // apart after every pause/outage. HR: short dropouts interpolated, longer ones written as
+        // FIT "invalid" (0xFF) instead of 0, so Strava shows a gap instead of a dive to zero.
+        val hr = HrAnalysis.clean(summary.records).bpm
+        var lastTs = -1
+        summary.records.forEachIndexed { i, p ->
+            val ts = fitTime(summary.startedAtMs + p.sessionElapsedMs)
+            if (ts == lastTs) return@forEachIndexed // max. one record per second
+            lastTs = ts
             val speedMps = p.paceSecPer500m?.takeIf { it > 0 }?.let { 500.0 / it } ?: 0.0
             body.u8(0x01)
-            body.u32(fitTime(p.timestampMs))
+            body.u32(ts)
             body.u32(p.distanceM * 100)
             body.u16((speedMps * 1000).toInt().coerceIn(0, 65534))
             body.u16(p.powerW.coerceIn(0, 65534))
             body.u8(p.strokeRate.toInt().coerceIn(0, 254))
-            body.u8((p.heartRateBpm ?: 0).coerceIn(0, 254))
+            body.u8(hr[i]?.coerceIn(1, 254) ?: 0xFF)
         }
     }
 
@@ -148,6 +158,6 @@ object FitWriter {
         body.u8(1)  // sport = running (Strava-compatible, see class doc)
         body.u8(1)  // sub_sport = treadmill
         body.u16(summary.totalEnergyKcal)
-        body.u8(summary.maxHeartRateBpm ?: 0)
+        body.u8(summary.maxHeartRateBpm ?: 0xFF)
     }
 }

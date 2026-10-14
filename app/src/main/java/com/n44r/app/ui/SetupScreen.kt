@@ -20,6 +20,7 @@ fun SetupScreen(vm: MainViewModel) {
     val timeTarget by vm.timeTargetSec.collectAsState()
     val distTarget by vm.distanceTargetM.collectAsState()
     val hrEnabled by vm.heartRateEnabled.collectAsState()
+    val warnSounds by vm.warnSoundsEnabled.collectAsState()
     val profile by vm.profile.collectAsState()
 
     Column(
@@ -54,6 +55,12 @@ fun SetupScreen(vm: MainViewModel) {
             Text("Herzfrequenz (iPhone-Bridge)")
             Switch(checked = hrEnabled, onCheckedChange = { vm.heartRateEnabled.value = it })
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Warntöne bei Verbindungsproblemen")
+            Switch(checked = warnSounds, onCheckedChange = { vm.warnSoundsEnabled.value = it })
+        }
+        Text("HF: zwei kurze hohe Pieptöne · Rudergerät: zwei lange tiefe Töne · wieder da: kurzer Aufwärts-Ton",
+            style = MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(24.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

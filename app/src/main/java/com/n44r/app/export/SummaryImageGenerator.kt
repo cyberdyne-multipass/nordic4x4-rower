@@ -11,17 +11,16 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * End-of-workout share cards on Hans' AI-generated rower photos, in three formats. Data is
+ * End-of-workout share card (square 1080x1080) on Hans' AI-generated rower photo. Data is
  * overlaid on translucent panels: tiles in the dark upper-left area, and a pace chart across
  * the bottom (wood/floor) with phase-coloured bands so the intervals stand out. The chart is
  * deliberately squeezed horizontally and stretched vertically for exactly that effect.
+ * (Landscape/portrait variants were dropped in 2026-10 - only the square one was ever used.)
  */
 object SummaryImageGenerator {
 
     enum class CardFormat(val w: Int, val h: Int, val bgRes: Int, val suffix: String) {
-        SQUARE(1080, 1080, R.drawable.summary_bg_square, "square"),
-        LANDSCAPE(1920, 1080, R.drawable.summary_bg_landscape, "wide"),
-        PORTRAIT(1080, 1920, R.drawable.summary_bg_portrait, "story")
+        SQUARE(1080, 1080, R.drawable.summary_bg_square, "square")
     }
 
     private fun phaseColor(t: PhaseType): Int = when (t) {
@@ -32,7 +31,7 @@ object SummaryImageGenerator {
         PhaseType.FREE -> Color.rgb(58, 58, 58)
     }
 
-    fun generate(context: Context, summary: SessionSummary, modeLabel: String, outFile: File, format: CardFormat, isDemo: Boolean = false) {
+    fun generate(context: Context, summary: SessionSummary, modeLabel: String, outFile: File, format: CardFormat = CardFormat.SQUARE, isDemo: Boolean = false) {
         val w = format.w; val h = format.h
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
@@ -54,22 +53,13 @@ object SummaryImageGenerator {
         )
         summary.maxHeartRateBpm?.let { tiles.add("Max. HF" to "$it bpm") }
         summary.laps.count { it.phaseType == PhaseType.WORK }.takeIf { it > 0 }?.let { tiles.add("Intervalle" to "$it") }
+        summary.hrMetrics.avgHrr60?.let { tiles.add("Ø HF-Erholung 60 s" to com.n44r.app.session.HrAnalysis.formatHrr(it)) }
 
-        val chartRect: RectF
-        when (format) {
-            CardFormat.SQUARE -> {
-                drawTiles(canvas, tiles, x0 = 48f, y0 = 186f, cols = 2, tw = 268f, th = 112f)
-                chartRect = RectF(48f, 780f, w - 48f, h - 48f)
-            }
-            CardFormat.LANDSCAPE -> {
-                drawTiles(canvas, tiles, x0 = 60f, y0 = 186f, cols = 3, tw = 250f, th = 112f)
-                chartRect = RectF(60f, 830f, w - 60f, h - 40f)
-            }
-            CardFormat.PORTRAIT -> {
-                drawTiles(canvas, tiles, x0 = 48f, y0 = 186f, cols = 2, tw = 268f, th = 112f)
-                chartRect = RectF(48f, 1520f, w - 48f, h - 60f)
-            }
-        }
+        // up to 8 tiles in 2 columns; with more than 6 the rows get a bit tighter so the
+        // chart panel at the bottom keeps its place
+        val th = if (tiles.size > 6) 104f else 112f
+        drawTiles(canvas, tiles, x0 = 48f, y0 = 186f, cols = 2, tw = 268f, th = th)
+        val chartRect = RectF(48f, 780f, w - 48f, h - 48f)
         drawPaceChart(canvas, chartRect, summary)
         drawBrand(context, canvas, w)
 
@@ -153,6 +143,18 @@ object SummaryImageGenerator {
         fun yOf(p: Int) = inner.top + inner.height() * ((p - lo) / (hi - lo)) // slower = lower
         val path = Path()
         pts.forEachIndexed { i, (sec, p) -> val x = xOf(sec.toFloat()); val y = yOf(p); if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
+        // soft fill between the line and the bottom edge
+        val fill = Path(path).apply {
+            lineTo(xOf(pts.last().first.toFloat()), inner.bottom)
+            lineTo(xOf(pts.first().first.toFloat()), inner.bottom)
+            close()
+        }
+        val fillPaint = Paint().apply {
+            isAntiAlias = true; style = Paint.Style.FILL
+            shader = LinearGradient(0f, inner.top, 0f, inner.bottom,
+                Color.argb(110, 255, 255, 255), Color.argb(15, 255, 255, 255), Shader.TileMode.CLAMP)
+        }
+        canvas.drawPath(fill, fillPaint)
         val line = Paint().apply { color = Color.WHITE; strokeWidth = 4f; style = Paint.Style.STROKE; isAntiAlias = true; strokeJoin = Paint.Join.ROUND; setShadowLayer(4f, 0f, 1f, Color.argb(160, 0, 0, 0)) }
         canvas.drawPath(path, line)
 

@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -214,17 +215,53 @@ private fun DrawScope.drawTrainingChart(
         }
     }
 
-    val points: List<Pair<Int, Float>> = when (metric) {
-        ChartMetric.PACE -> records.mapNotNull { r -> r.paceSecPer500m?.let { r.sessionElapsedSec to it.toFloat() } }
-        ChartMetric.HEART_RATE -> records.mapNotNull { r -> r.heartRateBpm?.let { r.sessionElapsedSec to it.toFloat() } }
-    }
-    if (points.isNotEmpty()) {
-        val path = Path()
-        points.forEachIndexed { i, (sec, v) ->
-            val x = xOf(sec); val y = yOf(v)
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    // Series as continuous runs: a run breaks where data is really missing. HR dropouts up to
+    // 60 s are bridged by linear interpolation (drawn dashed, so it stays visible that these
+    // values were not measured); longer ones stay a gap. Area under each run is softly filled.
+    data class Pt(val x: Float, val y: Float, val interpolated: Boolean)
+    val runs = mutableListOf<MutableList<Pt>>()
+    when (metric) {
+        ChartMetric.HEART_RATE -> {
+            val cleaned = HrAnalysis.clean(records)
+            var cur: MutableList<Pt>? = null
+            records.forEachIndexed { i, r ->
+                val v = cleaned.bpm[i]
+                if (v == null) { cur = null; return@forEachIndexed }
+                val run = cur ?: mutableListOf<Pt>().also { runs.add(it); cur = it }
+                run.add(Pt(xOf(r.sessionElapsedSec), yOf(v.toFloat()), cleaned.interpolated[i]))
+            }
         }
-        drawPath(path, color = Color.White, style = Stroke(width = 4f, cap = StrokeCap.Round))
+        ChartMetric.PACE -> {
+            var cur: MutableList<Pt>? = null
+            var lastSec = -1000
+            records.forEach { r ->
+                val p = r.paceSecPer500m
+                if (p == null) { cur = null; return@forEach }
+                if (r.sessionElapsedSec - lastSec > 5) cur = null
+                lastSec = r.sessionElapsedSec
+                val run = cur ?: mutableListOf<Pt>().also { runs.add(it); cur = it }
+                run.add(Pt(xOf(r.sessionElapsedSec), yOf(p.toFloat()), false))
+            }
+        }
+    }
+    val fillBrush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.04f)), startY = 0f, endY = h)
+    for (run in runs) {
+        if (run.size < 2) continue
+        val fill = Path().apply {
+            moveTo(run.first().x, h)
+            run.forEach { lineTo(it.x, it.y) }
+            lineTo(run.last().x, h)
+            close()
+        }
+        drawPath(fill, brush = fillBrush)
+        val solid = Path(); val dashed = Path()
+        for (k in 1 until run.size) {
+            val a = run[k - 1]; val b = run[k]
+            val target = if (a.interpolated || b.interpolated) dashed else solid
+            target.moveTo(a.x, a.y); target.lineTo(b.x, b.y)
+        }
+        drawPath(solid, color = Color.White, style = Stroke(width = 4f, cap = StrokeCap.Round))
+        drawPath(dashed, color = Color.White.copy(alpha = 0.7f), style = Stroke(width = 3f, cap = StrokeCap.Round, pathEffect = dashEffect))
     }
 
     var tSec = 0
