@@ -224,13 +224,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val now = System.currentTimeMillis()
         sm.start(now)
         lastModeLabel = modeLabelFor(sessionMode.value)
-        if (!rowerBle.isDemoMode.value) {
-            journal = runCatching {
-                SessionJournal.create(getApplication<Application>().filesDir, now, sessionMode.value, lastModeLabel, plan)
-            }.getOrNull()
-            sm.onRecord = { journal?.record(it) }
-            rawLog.attachFile(File(workoutsDir, "n44r_${now}_rawble.txt"), append = false)
-        }
+        val demo = rowerBle.isDemoMode.value
+        // Demo sessions are journaled too (marked as demo) so resume can be tested without the rower.
+        journal = runCatching {
+            SessionJournal.create(getApplication<Application>().filesDir, now, sessionMode.value, lastModeLabel, plan, demo = demo)
+        }.getOrNull()
+        sm.onRecord = { journal?.record(it) }
+        if (!demo) rawLog.attachFile(File(workoutsDir, "n44r_${now}_rawble.txt"), append = false)
         rawLog.event("Session gestartet ($lastModeLabel)")
         stateMachine = sm
         startWatchdog()
@@ -265,7 +265,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         pendingResume = sm
         pendingResumeAtSec.value = (keep.last().sessionElapsedMs / 1000).toInt()
         lastModeLabel = data.modeLabel
-        connectDevices()
+        if (SessionJournal.isDemo(file)) {
+            // resumed demo workout continues with simulated data
+            rowerBle.startDemo()
+            if (heartRateEnabled.value && heartRateBle.connectionState.value != ConnectionState.CONNECTED) heartRateBle.startScan()
+        } else {
+            connectDevices()
+        }
         rawLog.clear()
         waitingBaseline = null
         screen.value = Screen.WAITING
@@ -278,7 +284,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         journal = pendingResumeWriter
         pendingResumeWriter = null
         sm.onRecord = { journal?.record(it) }
-        rawLog.attachFile(File(workoutsDir, "n44r_${sm.startedAtMs}_rawble.txt"), append = true)
+        if (!rowerBle.isDemoMode.value) rawLog.attachFile(File(workoutsDir, "n44r_${sm.startedAtMs}_rawble.txt"), append = true)
         rawLog.event("Session fortgesetzt bei ${sm.uiState.value.sessionElapsedSec} s")
         stateMachine = sm
         sessionUi.value = sm.uiState.value

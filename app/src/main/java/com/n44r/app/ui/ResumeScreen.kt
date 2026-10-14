@@ -48,7 +48,10 @@ fun ResumeScreen(vm: MainViewModel) {
                 ) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(dateFmt.format(Date(info.startedAtMs)), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text(
+                                dateFmt.format(Date(info.startedAtMs)) + if (info.demo) "  🧪 DEMO" else "",
+                                fontWeight = FontWeight.Bold, fontSize = 18.sp
+                            )
                             Text("${info.modeLabel} · ${formatMmSs(info.durationSec)} · ${info.distanceM} m")
                         }
                         Text(

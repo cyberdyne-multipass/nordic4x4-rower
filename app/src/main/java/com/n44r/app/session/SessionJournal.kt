@@ -21,6 +21,8 @@ import java.io.FileWriter
  */
 object SessionJournal {
     private const val KEEP = 8
+    private const val KEEP_DEMO = 3
+    private const val DEMO_SUFFIX = "_demo"
 
     data class Info(
         val file: File,
@@ -28,8 +30,11 @@ object SessionJournal {
         val modeLabel: String,
         val durationSec: Int,
         val distanceM: Int,
-        val finished: Boolean
+        val finished: Boolean,
+        val demo: Boolean = false
     )
+
+    fun isDemo(file: File) = file.nameWithoutExtension.endsWith(DEMO_SUFFIX)
 
     data class Data(
         val startedAtMs: Long,
@@ -73,10 +78,14 @@ object SessionJournal {
     private fun Int?.s() = this?.toString() ?: ""
     private fun clean(s: String) = s.replace("|", "/").replace("\n", " ")
 
-    fun create(filesDir: File, startedAtMs: Long, mode: SessionMode, modeLabel: String, plan: List<PhaseSpec>): Writer {
+    /** [demo] journals (demo mode, for testing resume) are kept separately: only the last
+     *  [KEEP_DEMO], so they never push real workouts out of the list. */
+    fun create(filesDir: File, startedAtMs: Long, mode: SessionMode, modeLabel: String, plan: List<PhaseSpec>, demo: Boolean = false): Writer {
         val d = dir(filesDir)
-        d.listFiles { f -> f.extension == "n44j" }?.sortedByDescending { it.name }?.drop(KEEP - 1)?.forEach { it.delete() }
-        val w = Writer(File(d, "$startedAtMs.n44j"), append = false)
+        val keep = if (demo) KEEP_DEMO else KEEP
+        d.listFiles { f -> f.extension == "n44j" && isDemo(f) == demo }
+            ?.sortedByDescending { it.name }?.drop(keep - 1)?.forEach { it.delete() }
+        val w = Writer(File(d, "$startedAtMs${if (demo) DEMO_SUFFIX else ""}.n44j"), append = false)
         w.header(startedAtMs, mode, modeLabel, plan)
         return w
     }
@@ -95,12 +104,12 @@ object SessionJournal {
 
     fun list(filesDir: File): List<Info> =
         dir(filesDir).listFiles { f -> f.extension == "n44j" }.orEmpty()
-            .sortedByDescending { it.name }
             .mapNotNull { f ->
                 val d = runCatching { load(f) }.getOrNull() ?: return@mapNotNull null
                 val last = d.records.lastOrNull() ?: return@mapNotNull null
-                Info(f, d.startedAtMs, d.modeLabel, (last.sessionElapsedMs / 1000).toInt(), last.distanceM, d.finished)
+                Info(f, d.startedAtMs, d.modeLabel, (last.sessionElapsedMs / 1000).toInt(), last.distanceM, d.finished, isDemo(f))
             }
+            .sortedByDescending { it.startedAtMs }
 
     fun load(file: File): Data? {
         var started = 0L

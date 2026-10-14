@@ -75,7 +75,8 @@ fun StartScreen(vm: MainViewModel) {
         val unfinished = resumable.firstOrNull()?.takeIf { !it.finished }
         if (unfinished != null) {
             Text(
-                "Letztes Training wurde nicht beendet (${formatMmSs(unfinished.durationSec)} · ${unfinished.distanceM} m)",
+                (if (unfinished.demo) "Letztes Demo-Training" else "Letztes Training") +
+                    " wurde nicht beendet (${formatMmSs(unfinished.durationSec)} · ${unfinished.distanceM} m)",
                 color = Color(0xFFFFD54F), style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(6.dp))
