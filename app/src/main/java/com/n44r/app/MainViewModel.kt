@@ -400,6 +400,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         rowerBle.stopDemoJob()
         val startMs = System.currentTimeMillis() - targetSec * 1000L
+        val journalCallback = sm.onRecord
+        sm.onRecord = null // replayed records must not be appended to the journal again
         sm.reset(startMs)
 
         val generator = DemoGenerator()
@@ -411,6 +413,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             sm.onData(sample, forcedDeltaMs = 1000L, publishUpdate = (tick == targetSec - 1))
         }
         lastDemoHrMs = System.currentTimeMillis()
+        // replace the journal content with the replayed timeline
+        sm.onRecord = journalCallback
+        journal?.let { old ->
+            old.close()
+            journal = runCatching {
+                SessionJournal.rewrite(
+                    old.file,
+                    SessionJournal.Data(sm.startedAtMs, sm.mode, lastModeLabel, sm.plan, emptyList(), finished = false),
+                    sm.liveRecords.value
+                )
+            }.getOrNull()
+        }
         sessionUi.value = sm.uiState.value
         rowerBle.demoPhaseHint.value = sm.currentPhaseType()
         rowerBle.resumeDemo(generator, fromTick = targetSec)

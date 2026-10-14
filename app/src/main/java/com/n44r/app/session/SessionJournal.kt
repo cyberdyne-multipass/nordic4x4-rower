@@ -136,6 +136,9 @@ object SessionJournal {
                     )
                     "R" -> {
                         val elapsed = p[2].toLong()
+                        // time going backwards = the session was reset/replayed (demo seek in older
+                        // builds) -> only the latest continuous sequence is valid
+                        if (recs.isNotEmpty() && elapsed < recs.last().sessionElapsedMs) recs.clear()
                         recs.add(
                             RecordPoint(
                                 timestampMs = p[1].toLong(), sessionElapsedSec = (elapsed / 1000).toInt(),

@@ -54,7 +54,9 @@ fun TrainingChart(
     hrAxisMin: Int = 40,
     easyZone: Pair<Int, Int>? = null,
     hrPanelHeight: Dp? = null,
-    pacePanelHeight: Dp? = null
+    pacePanelHeight: Dp? = null,
+    /** Non-live charts: keep this second in view (e.g. the resume point), like live scrolling. */
+    focusSec: Int? = null
 ) {
     val easyTarget = (easyZone ?: DEFAULT_EASY_ZONE).let {
         PhaseTarget(type = TargetType.HEART_RATE, hrZoneLowBpm = it.first, hrZoneHighBpm = it.second)
@@ -71,9 +73,10 @@ fun TrainingChart(
         val totalSpanSec = contentSec + LEFT_MARGIN_SEC
         val contentWidthDp = totalSpanSec * pxPerSec
 
-        if (isLive) {
-            LaunchedEffect(elapsedSec, pxPerSec) {
-                val targetSec = (elapsedSec - (FIXED_WINDOW_SEC - RIGHT_MARGIN_SEC)).coerceAtLeast(0)
+        val scrollAnchorSec = if (isLive) elapsedSec else focusSec
+        if (scrollAnchorSec != null) {
+            LaunchedEffect(scrollAnchorSec, pxPerSec) {
+                val targetSec = (scrollAnchorSec - (FIXED_WINDOW_SEC - RIGHT_MARGIN_SEC)).coerceAtLeast(0)
                 val targetPx = with(density) { (targetSec * pxPerSec).dp.roundToPx() }
                 scrollState.scrollTo(targetPx)
             }

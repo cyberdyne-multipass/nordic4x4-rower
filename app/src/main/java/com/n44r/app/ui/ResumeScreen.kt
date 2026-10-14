@@ -90,7 +90,8 @@ fun ResumeScreen(vm: MainViewModel) {
             maxSec, isLive = false, compact = true,
             hrAxisMin = profile?.restingHr?.coerceIn(30, 120) ?: 40,
             easyZone = profile?.let { HrZones.easyZone(it) },
-            hrPanelHeight = 140.dp, pacePanelHeight = 100.dp
+            hrPanelHeight = 140.dp, pacePanelHeight = 100.dp,
+            focusSec = cutSec
         )
         Spacer(Modifier.height(12.dp))
 
