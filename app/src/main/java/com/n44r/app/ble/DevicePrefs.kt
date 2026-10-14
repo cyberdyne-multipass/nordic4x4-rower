@@ -30,6 +30,23 @@ object DevicePrefs {
             .putBoolean(KEY_HR_ENABLED, enabled).apply()
     }
 
+    private const val KEY_HR_PREF_ADDRESS = "hr_preferred_address"
+    private const val KEY_HR_PREF_NAME = "hr_preferred_name"
+
+    /** Preferred HR sensor (e.g. Garmin HRM 600). Null = connect to the first one found. */
+    fun getPreferredHr(context: Context): Pair<String, String>? {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val addr = p.getString(KEY_HR_PREF_ADDRESS, null) ?: return null
+        return addr to (p.getString(KEY_HR_PREF_NAME, "") ?: "")
+    }
+
+    fun savePreferredHr(context: Context, address: String?, name: String?) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (address == null) { remove(KEY_HR_PREF_ADDRESS); remove(KEY_HR_PREF_NAME) }
+            else { putString(KEY_HR_PREF_ADDRESS, address); putString(KEY_HR_PREF_NAME, name ?: "") }
+        }.apply()
+    }
+
     private const val KEY_WARN_SOUNDS = "warn_sounds_enabled"
 
     fun getWarnSoundsEnabled(context: Context): Boolean =

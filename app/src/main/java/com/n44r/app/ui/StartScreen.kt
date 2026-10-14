@@ -81,15 +81,17 @@ fun StartScreen(vm: MainViewModel) {
             )
             Spacer(Modifier.height(6.dp))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // all secondary buttons share one width and the row is centred, whether 3 or 4 are shown
+        val btn = Modifier.width(240.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
             if (resumable.isNotEmpty()) {
                 val label = "Workout fortsetzen…"
-                if (unfinished != null) Button(onClick = { vm.openResume() }) { Text(label) }
-                else OutlinedButton(onClick = { vm.openResume() }) { Text(label) }
+                if (unfinished != null) Button(onClick = { vm.openResume() }, modifier = btn) { Text(label, maxLines = 1) }
+                else OutlinedButton(onClick = { vm.openResume() }, modifier = btn) { Text(label, maxLines = 1) }
             }
-            OutlinedButton(onClick = { vm.openSettings() }) { Text("Einstellungen") }
-            OutlinedButton(onClick = { vm.openProfile() }) { Text("Profil") }
-            OutlinedButton(onClick = { vm.startDemoMode() }) { Text("Demo-Modus") }
+            OutlinedButton(onClick = { vm.openSettings() }, modifier = btn) { Text("Einstellungen") }
+            OutlinedButton(onClick = { vm.openProfile() }, modifier = btn) { Text("Profil") }
+            OutlinedButton(onClick = { vm.startDemoMode() }, modifier = btn) { Text("Demo-Modus") }
         }
         crash?.let { file ->
             Spacer(Modifier.height(12.dp))

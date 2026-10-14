@@ -218,6 +218,7 @@ private fun ConnectionBanner(link: LinkStatus) {
         )
         if (link.hrExpected && link.hrLost) add(
             "♥ KEINE HERZFREQUENZ seit ${link.hrSilentSec} s – " + when {
+                link.hrNoContact -> "Gurt hat keinen Hautkontakt (Elektroden anfeuchten, Gurt enger)"
                 link.hrSensorSendsInvalid -> "Sensor/Uhr liefert keine Werte (0)"
                 link.hrState == ConnectionState.CONNECTED -> "warte auf Werte…"
                 else -> "suche Sensor…"

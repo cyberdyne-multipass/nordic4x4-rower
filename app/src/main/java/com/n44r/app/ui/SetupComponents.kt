@@ -16,7 +16,7 @@ fun ConnectionBadge(state: ConnectionState) {
     val (text, color) = when (state) {
         ConnectionState.CONNECTED -> "Verbunden" to Color(0xFF3DBE7A)
         ConnectionState.CONNECTING -> "Verbinde..." to Color(0xFFD9A441)
-        ConnectionState.SCANNING -> "Suche ComModule..." to Color(0xFFD9A441)
+        ConnectionState.SCANNING -> "Suche Gerät..." to Color(0xFFD9A441)
         ConnectionState.RECONNECTING -> "Verbindung verloren, neu verbinden..." to Color(0xFFD9663D)
         ConnectionState.IDLE -> "Nicht verbunden" to Color(0xFF888888)
     }

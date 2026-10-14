@@ -52,9 +52,10 @@ fun SetupScreen(vm: MainViewModel) {
         Spacer(Modifier.height(16.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Herzfrequenz (iPhone-Bridge)")
+            Text("Herzfrequenz (Brustgurt oder iPhone-Bridge)")
             Switch(checked = hrEnabled, onCheckedChange = { vm.heartRateEnabled.value = it })
         }
+        if (hrEnabled) HrSensorSection(vm)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Warntöne bei Verbindungsproblemen")
             Switch(checked = warnSounds, onCheckedChange = { vm.warnSoundsEnabled.value = it })
@@ -66,6 +67,50 @@ fun SetupScreen(vm: MainViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { vm.backToStart() }) { Text("Fertig") }
             OutlinedButton(onClick = { vm.openProfile() }) { Text("Profil bearbeiten") }
+        }
+    }
+}
+
+/**
+ * Preferred HR sensor. With a preferred sensor (e.g. Garmin HRM 600) the app waits a few
+ * seconds for it and only then takes any other HR source (e.g. the iPhone bridge) as backup.
+ */
+@Composable
+private fun HrSensorSection(vm: MainViewModel) {
+    val preferred by vm.preferredHr.collectAsState()
+    val found by vm.heartRateBle.discovered.collectAsState()
+    val searching by vm.heartRateBle.discovering.collectAsState()
+    val connectedName by vm.heartRateBle.connectedName.collectAsState()
+    val rr by vm.heartRateBle.rrIntervalsSeen.collectAsState()
+    DisposableEffect(Unit) { onDispose { vm.stopHrDiscovery() } }
+
+    Card(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Herzfrequenz-Sensor", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Bevorzugt: " + (preferred?.second?.ifBlank { preferred?.first } ?: "automatisch (erster gefundener Sensor)"),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            connectedName?.let {
+                Text("Verbunden: $it" + if (rr) " · sendet RR-Intervalle" else "", style = MaterialTheme.typography.labelMedium)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { vm.startHrDiscovery() }, enabled = !searching) {
+                    Text(if (searching) "Suche…" else "Sensor suchen")
+                }
+                if (preferred != null) OutlinedButton(onClick = { vm.chooseHrSensor(null) }) { Text("Automatisch") }
+                if (searching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            if (searching || found.isNotEmpty()) {
+                Text("Gurt anlegen (Elektroden anfeuchten) bzw. Bridge-App starten, dann antippen:",
+                    style = MaterialTheme.typography.labelSmall)
+            }
+            found.forEach { d ->
+                val isPref = preferred?.first == d.address
+                OutlinedButton(onClick = { vm.chooseHrSensor(d) }, modifier = Modifier.fillMaxWidth()) {
+                    Text((if (isPref) "✓ " else "") + d.name + if (d.rssi != 0) "  (${d.rssi} dBm)" else "  (verbunden)")
+                }
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import com.n44r.app.MainViewModel
 import com.n44r.app.ble.ConnectionState
 
@@ -49,6 +50,22 @@ fun WaitingScreen(vm: MainViewModel) {
             Spacer(Modifier.height(8.dp))
             Text("Herzfrequenz: ", style = MaterialTheme.typography.labelMedium)
             ConnectionBadge(hrState)
+            val hrName by vm.heartRateBle.connectedName.collectAsState()
+            val hrBattery by vm.heartRateBle.batteryLevel.collectAsState()
+            val hrBpm by vm.heartRateBle.heartRateBpm.collectAsState()
+            val contact by vm.heartRateBle.skinContact.collectAsState()
+            if (hrState == ConnectionState.CONNECTED && hrName != null) {
+                Text(
+                    buildString {
+                        append(hrName)
+                        hrBattery?.let { append(" · Akku $it %") }
+                        hrBpm?.let { append(" · $it bpm") }
+                        if (contact == false) append(" · kein Hautkontakt")
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (hrBattery != null && hrBattery!! <= 15 || contact == false) Color(0xFFFFB74D) else Color.Unspecified
+                )
+            }
         }
         if (isDemo) {
             Spacer(Modifier.height(8.dp))

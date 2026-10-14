@@ -13,6 +13,8 @@ import com.n44r.app.ble.DevicePrefs
 import com.n44r.app.ble.HeartRateBleManager
 import com.n44r.app.ble.RawLog
 import com.n44r.app.ble.RowerBleManager
+import com.n44r.app.ble.RrLog
+import com.n44r.app.ble.HrDeviceInfo
 import com.n44r.app.data.AppPrefs
 import com.n44r.app.export.SummaryImageGenerator
 import com.n44r.app.fit.FitWriter
@@ -37,7 +39,9 @@ data class LinkStatus(
     val hrSilentSec: Int = 0,
     val hrState: ConnectionState = ConnectionState.IDLE,
     /** HR link is alive but the sensor only sends invalid values (0) - a watch/strap issue. */
-    val hrSensorSendsInvalid: Boolean = false
+    val hrSensorSendsInvalid: Boolean = false,
+    /** Chest strap reports no skin contact (electrodes dry / strap loose). */
+    val hrNoContact: Boolean = false
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -55,6 +59,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val rawLog = RawLog()
     val rowerBle = RowerBleManager(app, rawLog)
     val heartRateBle = HeartRateBleManager(app, rawLog)
+    private val rrLog = RrLog().also { log -> heartRateBle.onRrIntervals = { t, rr -> log.add(t, rr) } }
+    /** Preferred HR sensor (address to name), null = first one found. */
+    val preferredHr = MutableStateFlow(DevicePrefs.getPreferredHr(app))
 
     var stateMachine: SessionStateMachine? = null
         private set
@@ -230,7 +237,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             SessionJournal.create(getApplication<Application>().filesDir, now, sessionMode.value, lastModeLabel, plan, demo = demo)
         }.getOrNull()
         sm.onRecord = { journal?.record(it) }
-        if (!demo) rawLog.attachFile(File(workoutsDir, "n44r_${now}_rawble.txt"), append = false)
+        if (!demo) {
+            rawLog.attachFile(File(workoutsDir, "n44r_${now}_rawble.txt"), append = false)
+            rrLog.attach(File(workoutsDir, "n44r_${now}_rr.csv"), append = false)
+        }
         rawLog.event("Session gestartet ($lastModeLabel)")
         stateMachine = sm
         startWatchdog()
@@ -284,7 +294,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         journal = pendingResumeWriter
         pendingResumeWriter = null
         sm.onRecord = { journal?.record(it) }
-        if (!rowerBle.isDemoMode.value) rawLog.attachFile(File(workoutsDir, "n44r_${sm.startedAtMs}_rawble.txt"), append = true)
+        if (!rowerBle.isDemoMode.value) {
+            rawLog.attachFile(File(workoutsDir, "n44r_${sm.startedAtMs}_rawble.txt"), append = true)
+            rrLog.attach(File(workoutsDir, "n44r_${sm.startedAtMs}_rr.csv"), append = true)
+        }
         rawLog.event("Session fortgesetzt bei ${sm.uiState.value.sessionElapsedSec} s")
         stateMachine = sm
         sessionUi.value = sm.uiState.value
@@ -356,7 +369,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             rowerLost = rowerLost, rowerSilentSec = (rowerSilent / 1000).toInt(),
             rowerState = rowerBle.connectionState.value,
             hrExpected = hrExpected, hrLost = hrLost, hrSilentSec = (hrSilent / 1000).toInt(),
-            hrState = heartRateBle.connectionState.value, hrSensorSendsInvalid = sendsInvalid
+            hrState = heartRateBle.connectionState.value, hrSensorSendsInvalid = sendsInvalid,
+            hrNoContact = hrLost && heartRateBle.skinContact.value == false
         )
         sm.tick()
         sessionUi.value = sm.uiState.value
@@ -430,6 +444,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         rowerBle.resumeDemo(generator, fromTick = targetSec)
     }
 
+    // ---------- HR sensor selection (settings) ----------
+    fun startHrDiscovery() = heartRateBle.startDiscovery()
+    fun stopHrDiscovery() = heartRateBle.stopDiscovery()
+
+    /** null = automatic (first sensor found). */
+    fun chooseHrSensor(info: HrDeviceInfo?) {
+        heartRateBle.stopDiscovery()
+        heartRateBle.choosePreferred(info)
+        preferredHr.value = DevicePrefs.getPreferredHr(getApplication())
+    }
+
     fun retryHeartRate() {
         heartRateEnabled.value = true
         if (heartRateBle.connectionState.value == ConnectionState.CONNECTED) heartRateBle.forceReconnect("manuell")
@@ -447,6 +472,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         journal = null
         rawLog.event("Session beendet")
         rawLog.detachFile()
+        val rrFile = rrLog.detach()
 
         val prefix = if (demo) "DEMO_n44r" else "n44r"
         val stamp = summary.startedAtMs
@@ -463,6 +489,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }.onFailure { rawLog.event("Bild-Export fehlgeschlagen: $it") }
         val logFile = File(workoutsDir, "${prefix}_${stamp}_rawble.txt")
         if (!demo && logFile.exists()) files.add(logFile)
+        rrFile?.let { files.add(it) }
         exportedFiles.value = files
         linkStatus.value = LinkStatus()
         screen.value = Screen.SUMMARY
@@ -494,6 +521,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         watchdogJob?.cancel()
         journal?.close()
         rawLog.detachFile()
+        rrLog.detach()
         rowerBle.shutdown()
         heartRateBle.shutdown()
     }
