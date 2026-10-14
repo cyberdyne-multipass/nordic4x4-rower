@@ -74,8 +74,7 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     @Volatile var lastValidMs: Long = 0L
         private set
 
-    // Link quality: chest straps send ~1/s (expected rate known once skin contact reporting
-    // identifies a strap); the Apple bridge sends irregularly -> judged by RSSI only.
+    // Link quality: RSSI + longest packet gap (HR sensors have no common fixed send rate).
     private val qualityTracker = LinkQualityTracker(expectedIntervalMs = null)
     val quality = MutableStateFlow(LinkQuality.NONE)
     @Volatile private var setupDone = false
@@ -325,8 +324,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             val now = System.currentTimeMillis()
             lastPacketMs = now
             qualityTracker.onPacket(now)
-            // a sensor that reports skin contact is a strap with a fixed ~1 s rate
-            if (m.skinContact != null && qualityTracker.expectedIntervalMs == null) qualityTracker.expectedIntervalMs = 1000L
+            // NOTE: no fixed expected rate for HR - the HeartCast bridge also reports a skin-contact
+            // flag but sends only every ~2.5 s; packet flow is judged by gaps instead (LinkQuality)
             skinContact.value = m.skinContact
             if (m.rrMs.isNotEmpty()) {
                 if (!rrIntervalsSeen.value) {

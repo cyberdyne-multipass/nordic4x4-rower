@@ -152,6 +152,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch { heartRateEnabled.collect { DevicePrefs.saveHeartRateEnabled(app, it) } }
         viewModelScope.launch { warnSoundsEnabled.collect { DevicePrefs.saveWarnSoundsEnabled(app, it) } }
+        // also keep looking for the HR sensor while waiting for the first stroke (the session
+        // watchdog only runs once rowing has started)
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                if (screen.value == Screen.WAITING && heartRateEnabled.value) heartRateBle.ensureConnected()
+            }
+        }
         viewModelScope.launch {
             combine(sessionMode, mainMetric, timeTargetSec, distanceTargetM, intervalConfig) { mode, metric, t, d, iv ->
                 AppPrefs.Settings(mode, metric, t, d, iv)
