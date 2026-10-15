@@ -56,6 +56,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     @Volatile private var quickDrops = 0
     private var lastRaw: ByteArray? = null
     private var lastRawMs = 0L
+    private val plausibility = HrPlausibility()
+    private var lastTrusted = true
 
     private fun bondLabel(state: Int) = when (state) {
         BluetoothDevice.BOND_BONDED -> "gekoppelt"
@@ -78,8 +80,9 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     val discovered = MutableStateFlow<List<HrDeviceInfo>>(emptyList())
     val discovering = MutableStateFlow(false)
 
-    /** Called (on a binder thread) with the wall time and the RR intervals in ms of each packet. */
-    @Volatile var onRrIntervals: ((Long, List<Int>) -> Unit)? = null
+    /** Called (on a binder thread) with the wall time and the RR intervals in ms of each packet,
+     *  each paired with "plausible" (false = artifact, e.g. strap without skin contact). */
+    @Volatile var onRrIntervals: ((Long, List<Pair<Int, Boolean>>) -> Unit)? = null
 
     @Volatile var lastPacketMs: Long = 0L
         private set
@@ -279,6 +282,7 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
                 val bond = runCatching { g.device.bondState }.getOrDefault(-1)
                 rawLog.event("HF: verbunden (Kopplung: ${bondLabel(bond)})")
                 connectFailures = 0
+                plausibility.reset(); lastTrusted = true
                 connectedAtMs = System.currentTimeMillis()
                 setupDone = false
                 qualityTracker.reset()
@@ -367,22 +371,28 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             qualityTracker.onPacket(now)
             // NOTE: no fixed expected rate for HR - the HeartCast bridge also reports a skin-contact
             // flag but sends only every ~2.5 s; packet flow is judged by gaps instead (LinkQuality)
-            skinContact.value = m.skinContact
             // The HRM 600 sends every measurement twice (~0.5 s apart, identical bytes). A real
             // next beat can't arrive before its own RR interval has elapsed, so an identical packet
             // within 75 % of that interval is a duplicate -> don't log its RR values again.
             val lastRr = m.rrMs.lastOrNull()
             val duplicate = lastRr != null && lastRaw?.contentEquals(raw) == true &&
-                now - lastRawMs < lastRr * 3 / 4
+                now - lastRawMs < maxOf(lastRr, 1) * 3 / 4
             lastRaw = raw.copyOf(); lastRawMs = now
+            // Straps without contact bits (HRM 600) still give themselves away via their RR
+            // intervals when they lose skin contact -> plausibility check (see HrPlausibility)
+            val trusted = if (duplicate) lastTrusted else plausibility.check(m.bpm, m.rrMs).also { lastTrusted = it }
+            val contact = m.skinContact ?: if (m.rrMs.isNotEmpty()) trusted else null
+            if (contact == false && skinContact.value != false) rawLog.event("HF: kein Hautkontakt / unplausible Werte")
+            if (contact == true && skinContact.value == false) rawLog.event("HF: Hautkontakt wieder ok")
+            skinContact.value = contact
             if (m.rrMs.isNotEmpty() && !duplicate) {
                 if (!rrIntervalsSeen.value) {
                     rrIntervalsSeen.value = true
                     rawLog.event("HF: Sensor sendet RR-Intervalle")
                 }
-                onRrIntervals?.invoke(now, m.rrMs)
+                onRrIntervals?.invoke(now, m.rrMs.map { it to (trusted && plausibility.isValidRr(it)) })
             }
-            val valid = m.bpm in MIN_VALID_BPM..MAX_VALID_BPM && m.skinContact != false
+            val valid = m.bpm in MIN_VALID_BPM..MAX_VALID_BPM && contact != false
             if (valid) {
                 lastValidMs = now
                 heartRateBpm.value = m.bpm

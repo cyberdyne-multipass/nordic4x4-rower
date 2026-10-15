@@ -6,31 +6,32 @@ import java.io.FileWriter
 
 /**
  * Beat-to-beat (RR) intervals from a chest strap (e.g. Garmin HRM 600), streamed to
- * n44r_<start>_rr.csv during a session: "wall_time_ms;rr_ms" per beat. Basis for HRV
- * analysis later; the Apple-Watch bridge normally sends none, then the file stays empty
- * and is not exported.
+ * n44r_<start>_rr.csv during a session: "wall_time_ms;rr_ms;plausibel" per beat, where
+ * plausibel=0 marks artifacts (strap without skin contact, impossible intervals) that an HRV
+ * analysis must skip. The Apple-Watch bridge normally sends no RR -> file stays empty and is
+ * not exported.
  */
 class RrLog {
+    companion object { private const val HEADER = "wall_time_ms;rr_ms;plausibel\n" }
+
     private var writer: BufferedWriter? = null
     private var file: File? = null
-    private var count = 0
 
     @Synchronized
     fun attach(f: File, append: Boolean) {
         detach()
         runCatching {
             val isNew = !append || !f.exists() || f.length() == 0L
-            writer = BufferedWriter(FileWriter(f, append)).also { if (isNew) it.write("wall_time_ms;rr_ms\n") }
+            writer = BufferedWriter(FileWriter(f, append)).also { if (isNew) it.write(HEADER) }
             file = f
-            count = 0
         }
     }
 
     @Synchronized
-    fun add(wallTimeMs: Long, rrMs: List<Int>) {
+    fun add(wallTimeMs: Long, rr: List<Pair<Int, Boolean>>) {
         val w = writer ?: return
         runCatching {
-            rrMs.forEach { w.write("$wallTimeMs;$it\n"); count++ }
+            rr.forEach { (ms, ok) -> w.write("$wallTimeMs;$ms;${if (ok) 1 else 0}\n") }
             w.flush()
         }
     }
@@ -42,6 +43,6 @@ class RrLog {
         writer = null
         val f = file
         file = null
-        return f?.takeIf { it.exists() && it.length() > "wall_time_ms;rr_ms\n".length }
+        return f?.takeIf { it.exists() && it.length() > HEADER.length }
     }
 }
