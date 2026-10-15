@@ -255,10 +255,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             SessionJournal.create(getApplication<Application>().filesDir, now, sessionMode.value, lastModeLabel, plan, demo = demo)
         }.getOrNull()
         sm.onRecord = { journal?.record(it) }
-        if (!demo) {
-            rawLog.attachFile(File(workoutsDir, "n44r_${now}_rawble.txt"), append = false)
-            rrLog.attach(File(workoutsDir, "n44r_${now}_rr.csv"), append = false)
-        }
+        // raw log + RR also in demo mode: a real HR sensor can be tested without the rower
+        val prefix = if (demo) "DEMO_n44r" else "n44r"
+        rawLog.attachFile(File(workoutsDir, "${prefix}_${now}_rawble.txt"), append = false)
+        rrLog.attach(File(workoutsDir, "${prefix}_${now}_rr.csv"), append = false)
         rawLog.event("Session gestartet ($lastModeLabel)")
         stateMachine = sm
         startWatchdog()
@@ -312,10 +312,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         journal = pendingResumeWriter
         pendingResumeWriter = null
         sm.onRecord = { journal?.record(it) }
-        if (!rowerBle.isDemoMode.value) {
-            rawLog.attachFile(File(workoutsDir, "n44r_${sm.startedAtMs}_rawble.txt"), append = true)
-            rrLog.attach(File(workoutsDir, "n44r_${sm.startedAtMs}_rr.csv"), append = true)
-        }
+        val prefix = if (rowerBle.isDemoMode.value) "DEMO_n44r" else "n44r"
+        rawLog.attachFile(File(workoutsDir, "${prefix}_${sm.startedAtMs}_rawble.txt"), append = true)
+        rrLog.attach(File(workoutsDir, "${prefix}_${sm.startedAtMs}_rr.csv"), append = true)
         rawLog.event("Session fortgesetzt bei ${sm.uiState.value.sessionElapsedSec} s")
         stateMachine = sm
         sessionUi.value = sm.uiState.value
@@ -518,7 +517,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             files.add(imgFile)
         }.onFailure { rawLog.event("Bild-Export fehlgeschlagen: $it") }
         val logFile = File(workoutsDir, "${prefix}_${stamp}_rawble.txt")
-        if (!demo && logFile.exists()) files.add(logFile)
+        if (logFile.exists()) files.add(logFile)
         rrFile?.let { files.add(it) }
         exportedFiles.value = files
         linkStatus.value = LinkStatus()
