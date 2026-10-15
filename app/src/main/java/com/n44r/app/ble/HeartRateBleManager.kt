@@ -54,6 +54,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     @Volatile private var connectFailures = 0
     @Volatile private var connectedAtMs = 0L
     @Volatile private var quickDrops = 0
+    private var lastRaw: ByteArray? = null
+    private var lastRawMs = 0L
 
     private fun bondLabel(state: Int) = when (state) {
         BluetoothDevice.BOND_BONDED -> "gekoppelt"
@@ -366,7 +368,14 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             // NOTE: no fixed expected rate for HR - the HeartCast bridge also reports a skin-contact
             // flag but sends only every ~2.5 s; packet flow is judged by gaps instead (LinkQuality)
             skinContact.value = m.skinContact
-            if (m.rrMs.isNotEmpty()) {
+            // The HRM 600 sends every measurement twice (~0.5 s apart, identical bytes). A real
+            // next beat can't arrive before its own RR interval has elapsed, so an identical packet
+            // within 75 % of that interval is a duplicate -> don't log its RR values again.
+            val lastRr = m.rrMs.lastOrNull()
+            val duplicate = lastRr != null && lastRaw?.contentEquals(raw) == true &&
+                now - lastRawMs < lastRr * 3 / 4
+            lastRaw = raw.copyOf(); lastRawMs = now
+            if (m.rrMs.isNotEmpty() && !duplicate) {
                 if (!rrIntervalsSeen.value) {
                     rrIntervalsSeen.value = true
                     rawLog.event("HF: Sensor sendet RR-Intervalle")
