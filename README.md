@@ -55,8 +55,18 @@ Bluetooth-Herzfrequenzsensor weitersendet, den die App dann ganz normal erkennt.
 **[HeartCast – Heart Rate Monitor](https://apps.apple.com/app/id1499771124)** (kostenlos,
 App Store) ist eine solche Bridge-App. Einfach auf dem iPhone installieren, während des
 Trainings geöffnet lassen und ein aktives Watch-Training starten – die App erkennt die
-Herzfrequenz dann automatisch, sobald "Herzfrequenz (iPhone-Bridge)" in den Einstellungen
-aktiviert ist.
+Herzfrequenz dann automatisch, sobald "Herzfrequenz (Brustgurt oder iPhone-Bridge)" in den
+Einstellungen aktiviert ist.
+
+**Brustgurt:** Jeder Bluetooth-Herzfrequenzgurt (Standard-Heart-Rate-Service) funktioniert,
+getestet mit dem **Garmin HRM 600**. In den Einstellungen unter *Herzfrequenz-Sensor* auf
+**Sensor suchen** tippen und den Gurt auswählen – die App bevorzugt ihn dann und nimmt die
+iPhone-Bridge nur als Ersatz, falls der Gurt nicht gefunden wird. Hinweis zum HRM 600: im
+Modus "sichere Verbindung" muss er einmal gekoppelt werden (Knopf 4 s halten = Kopplungsmodus,
+die App fordert die Kopplung dann selbst an); alternativ per Doppeldruck auf "offene
+Verbindung" umstellen. Gurte mit RR-Intervallen (Schlag-zu-Schlag-Abstände) werden zusätzlich
+als CSV aufgezeichnet und zur Plausibilitätsprüfung genutzt: ohne Hautkontakt liefert z. B.
+der HRM 600 erfundene Pulswerte, die die App daran erkennt und verwirft.
 
 ## Kompatibilität
 
@@ -77,6 +87,13 @@ eingetragene Marke des jeweiligen Rechteinhabers.
 - Live-Diagramm (Herzfrequenz + Pace) mit Phasenfärbung und Sollbereich-Anzeige
 - FIT-Export (eigener, schlanker Encoder) sowie Bild- und Rohdaten-Export
 - Demo-Modus zum Testen ohne angeschlossenes Rudergerät
+- Robustheit: Verbindungs-Watchdog mit automatischem Neuverbinden (Rudergerät und
+  Herzfrequenz), auffällige Warnungen mit unterscheidbaren Warntönen, Signalanzeige
+  (Signalstärke + Paketfluss) mit Frühwarnung bei schwachem Empfang
+- Absturzsicher: jedes Training wird laufend mitgeschrieben und lässt sich nach einem Absturz
+  (oder versehentlichem Beenden) fortsetzen – auch ab einem früheren Zeitpunkt
+- Herzfrequenz-Dynamik: HF-Erholung 60 s nach jedem Intervall (HRR60) und HF-Anstiegszeit
+- Kurze HF-Aussetzer werden interpoliert, ungültige Werte (z. B. 0) verworfen
 
 ## Lizenz
 
