@@ -51,6 +51,16 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     private var connectTimeoutJob: Job? = null
     private var lastScanEndMs = 0L
     private var fallbackCandidate: BluetoothDevice? = null
+    @Volatile private var connectFailures = 0
+    @Volatile private var connectedAtMs = 0L
+    @Volatile private var quickDrops = 0
+
+    private fun bondLabel(state: Int) = when (state) {
+        BluetoothDevice.BOND_BONDED -> "gekoppelt"
+        BluetoothDevice.BOND_BONDING -> "koppelt…"
+        BluetoothDevice.BOND_NONE -> "nicht gekoppelt"
+        else -> "?"
+    }
 
     val connectionState = MutableStateFlow(ConnectionState.IDLE)
     /** Last VALID heart rate, null when the sensor reports nothing usable. */
@@ -178,9 +188,16 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
         val name = runCatching { device.name }.getOrNull()
         rawLog.event("HF: verbinde mit ${device.address} (${name ?: "?"}) - $why")
         connectedName.value = name ?: device.address
-        gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        connectTimeoutJob?.cancel() // a timer of an earlier attempt must not kill this one
+        // After repeated GATT 133 errors switch to autoConnect=true: the stack then waits for the
+        // device's next connectable advertisement itself - a well-known workaround for 133.
+        val autoConnect = connectFailures >= 2
         connectTimeoutJob = scope.launch {
-            delay(15_000)
+            delay(600) // give the controller a moment after stopScan (another 133 trigger)
+            if (connectionState.value != ConnectionState.CONNECTING) return@launch
+            if (autoConnect) rawLog.event("HF: Verbindungsversuch mit autoConnect (nach $connectFailures Fehlversuchen)")
+            gatt = device.connectGatt(context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            delay(if (autoConnect) 30_000 else 15_000)
             if (connectionState.value == ConnectionState.CONNECTING) {
                 rawLog.event("HF: Verbindungsaufbau Timeout")
                 closeGatt()
@@ -257,16 +274,35 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (g != gatt) { runCatching { g.close() }; return }
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                rawLog.event("HF: verbunden")
+                val bond = runCatching { g.device.bondState }.getOrDefault(-1)
+                rawLog.event("HF: verbunden (Kopplung: ${bondLabel(bond)})")
+                connectFailures = 0
+                connectedAtMs = System.currentTimeMillis()
                 setupDone = false
                 qualityTracker.reset()
                 qualityTracker.expectedIntervalMs = null
                 connectTimeoutJob?.cancel()
                 lastPacketMs = System.currentTimeMillis()
                 connectionState.value = ConnectionState.CONNECTED
-                g.discoverServices()
+                // short pause before discovery - several sensors (and Android 12) drop the link
+                // if discovery starts while the link/encryption setup is still in progress
+                scope.launch { delay(600); if (gatt == g) runCatching { g.discoverServices() } }
             } else {
                 rawLog.event("HF: getrennt (status=$status, state=$newState)")
+                connectTimeoutJob?.cancel()
+                if (connectionState.value == ConnectionState.CONNECTING) connectFailures++
+                // Sensor drops the link within seconds after connecting, again and again: typical for
+                // straps that require pairing (bonding) before they serve data -> pair once.
+                val quickDrop = connectedAtMs > 0 && System.currentTimeMillis() - connectedAtMs < 5_000
+                connectedAtMs = 0L
+                if (quickDrop) {
+                    quickDrops++
+                    val dev = g.device
+                    if (quickDrops >= 2 && runCatching { dev.bondState }.getOrDefault(-1) == BluetoothDevice.BOND_NONE) {
+                        rawLog.event("HF: Sensor trennt sofort wieder -> Kopplung wird angefordert")
+                        runCatching { dev.createBond() }
+                    }
+                } else quickDrops = 0
                 gatt = null
                 runCatching { g.close() }
                 heartRateBpm.value = null
@@ -282,6 +318,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             val characteristic = g.getService(BleConstants.SERVICE_HEART_RATE)
                 ?.getCharacteristic(BleConstants.CHAR_HEART_RATE_MEASUREMENT)
+            rawLog.event("HF: Services gefunden (status=$status): " +
+                g.services.joinToString(",") { it.uuid.toString().substring(4, 8) })
             if (status != BluetoothGatt.GATT_SUCCESS || characteristic == null) {
                 rawLog.event("HF: Service-Discovery fehlgeschlagen (status=$status)")
                 scope.launch { forceReconnect("discovery") }
@@ -294,6 +332,7 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            rawLog.event("HF: Notifications aktiviert (status=$status)")
             // notifications are set up -> now (one op at a time) read the sensor's battery level
             val battery = g.getService(BleConstants.SERVICE_BATTERY)?.getCharacteristic(BleConstants.CHAR_BATTERY_LEVEL)
             if (battery == null || runCatching { g.readCharacteristic(battery) }.getOrDefault(false) != true) setupDone = true
