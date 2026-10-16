@@ -12,13 +12,18 @@ data class LinkQuality(
     val packetRatePct: Int?,
     /** Mean time between packets (for senders without a fixed rate, e.g. the Apple bridge). */
     val avgIntervalMs: Long?,
-    val level: SignalLevel
+    val level: SignalLevel,
+    /** Connected, but no data packet since (re)connecting. The S4 ComModule only starts sending
+     *  with the first stroke, so before the start this is normal - level is then RSSI-only. */
+    val awaitingData: Boolean = false
 ) {
     companion object { val NONE = LinkQuality(null, null, null, SignalLevel.NONE) }
 
-    fun describe(): String = buildList {
+    /** [awaitingText]: what to say while connected but silent (e.g. "Daten ab erstem Schlag"). */
+    fun describe(awaitingText: String = "noch keine Daten"): String = buildList {
         rssiAvg?.let { add("$it dBm") }
-        if (packetRatePct != null) add("$packetRatePct % Pakete")
+        if (awaitingData) add(awaitingText)
+        else if (packetRatePct != null) add("$packetRatePct % Pakete")
         else avgIntervalMs?.let { add(String.format(java.util.Locale.GERMAN, "Paket alle %.1f s", it / 1000.0)) }
         add(when (level) {
             SignalLevel.GOOD -> "gut"; SignalLevel.OK -> "mittel"
@@ -46,10 +51,17 @@ class LinkQualityTracker(@Volatile var expectedIntervalMs: Long?) {
     private val rssi = ArrayDeque<Pair<Long, Int>>()
     private val packets = ArrayDeque<Long>()
     private var since = 0L
+    /** First data packet since [reset]; null = sender silent so far (see [LinkQuality.awaitingData]). */
+    private var firstPacket: Long? = null
 
-    @Synchronized fun reset(now: Long = System.currentTimeMillis()) { rssi.clear(); packets.clear(); since = now }
+    @Synchronized fun reset(now: Long = System.currentTimeMillis()) {
+        rssi.clear(); packets.clear(); since = now; firstPacket = null
+    }
     @Synchronized fun onRssi(v: Int, now: Long = System.currentTimeMillis()) { rssi.addLast(now to v); trim(now) }
-    @Synchronized fun onPacket(now: Long = System.currentTimeMillis()) { packets.addLast(now); trim(now) }
+    @Synchronized fun onPacket(now: Long = System.currentTimeMillis()) {
+        if (firstPacket == null) firstPacket = now
+        packets.addLast(now); trim(now)
+    }
 
     private fun trim(now: Long) {
         while (rssi.isNotEmpty() && now - rssi.first().first > WINDOW_MS) rssi.removeFirst()
@@ -60,7 +72,23 @@ class LinkQualityTracker(@Volatile var expectedIntervalMs: Long?) {
     fun snapshot(now: Long = System.currentTimeMillis()): LinkQuality {
         trim(now)
         val avg = if (rssi.isEmpty()) null else rssi.map { it.second }.average().roundToInt()
-        val span = minOf(WINDOW_MS, now - since)
+        val first = firstPacket
+        if (first == null) {
+            // connected but nothing received yet: the S4 ComModule is silent until the first stroke
+            // (seen 2026-10-15: connected 17:56, first packet 18:00:36) -> judge the radio by RSSI
+            // only instead of "0 % Pakete · schwach" at -42 dBm. A sender that stops later is
+            // caught by the gap/rate logic below and by the ViewModel watchdog.
+            val level = when {
+                avg == null -> SignalLevel.NONE
+                avg >= -70 -> SignalLevel.GOOD
+                avg >= -85 -> SignalLevel.OK
+                else -> SignalLevel.WEAK
+            }
+            return LinkQuality(avg, null, null, level, awaitingData = true)
+        }
+        // measure from the first packet, not from the connect: otherwise the first 20 s after the
+        // first stroke showed "24 % Pakete · schwach" (the silent waiting time counted as loss)
+        val span = minOf(WINDOW_MS, now - maxOf(since, first))
         val interval = expectedIntervalMs
         val rate = if (interval != null && span >= 5_000) {
             ((packets.size * interval * 100.0) / span).roundToInt().coerceAtMost(100)

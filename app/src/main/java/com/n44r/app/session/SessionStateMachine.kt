@@ -56,6 +56,14 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
     private var offsetSet = false
     private var resumePending = false
 
+    // Energy: the S4 sends a running kcal counter (2026-10-15: 421 kcal). We add up its increments
+    // (robust against monitor resets and resume). Parts without monitor energy (restored from the
+    // journal, demo replay) are estimated from power instead (see [estimateKcal]).
+    private var energyKcal = 0
+    private var lastRawEnergy: Int? = null
+    private var monitorEnergySeen = false
+    private var restoredKcal = 0.0
+
     /** Called for every new record (journal). Not called during restore/replay of old records. */
     var onRecord: ((RecordPoint) -> Unit)? = null
 
@@ -92,6 +100,10 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
         distanceOffset = 0
         offsetSet = false
         resumePending = false
+        energyKcal = 0
+        lastRawEnergy = null
+        monitorEnergySeen = false
+        restoredKcal = 0.0
         records.clear()
         laps.clear()
         liveRecords.value = emptyList()
@@ -127,6 +139,9 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
         onRecord = cb
         lastHeartRate = null
         resumePending = true
+        energyKcal = 0
+        lastRawEnergy = null
+        restoredKcal = estimateKcal(records)
         pauseDetector.reset()
         liveRecords.value = records.toList()
         liveLaps.value = laps.toList()
@@ -170,6 +185,14 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
         val dist = (data.totalDistanceMeters - distanceOffset).coerceAtLeast(0)
         val rowedDuringGap = data.totalDistanceMeters > lastRawDistance
         lastRawDistance = data.totalDistanceMeters
+
+        if (forcedDeltaMs == null) {
+            // only live monitor values; increments > 30 kcal per sample = counter jump, ignored
+            val prev = lastRawEnergy
+            val d = if (prev != null) data.totalEnergyKcal - prev else 0
+            if (d in 1..30) { energyKcal += d; monitorEnergySeen = true }
+            lastRawEnergy = data.totalEnergyKcal
+        }
 
         val autoPaused = pauseDetector.update(dist, data.strokeCount, now)
         lastAutoPaused = autoPaused
@@ -260,7 +283,8 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
             avgPaceSecPer500m = avgPace,
             avgPowerW = avgPower,
             avgStrokeRate = avgStroke,
-            totalEnergyKcal = 0,
+            totalEnergyKcal = if (monitorEnergySeen) (energyKcal + restoredKcal).toInt()
+                              else estimateKcal(records).toInt(),
             maxHeartRateBpm = HrAnalysis.maxHr(records),
             workTarget = workTarget,
             restTarget = restTarget,
@@ -268,6 +292,18 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
             records = records.toList(),
             hrMetrics = HrAnalysis.computeMetrics(records)
         )
+    }
+
+    /** Fallback energy estimate from power (Concept2 formula: kcal/h = 4 * 0.8604 * W + 300). */
+    private fun estimateKcal(recs: List<RecordPoint>): Double {
+        var kcal = 0.0
+        var prevMs = 0L
+        for (r in recs) {
+            val dt = ((r.sessionElapsedMs - prevMs).coerceIn(0, 5_000)) / 3_600_000.0
+            kcal += (4 * 0.8604 * r.powerW + 300) * dt
+            prevMs = r.sessionElapsedMs
+        }
+        return kcal
     }
 
     private fun publish(manualPause: Boolean, autoPause: Boolean) {

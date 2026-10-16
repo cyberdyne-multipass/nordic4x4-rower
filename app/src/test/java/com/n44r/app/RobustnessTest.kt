@@ -145,16 +145,65 @@ class RobustnessTest {
         dir.deleteRecursively()
     }
 
-    @Test fun writeFitForExternalValidation() {
+    /** Like the real S4: a sample every ~1.15 s, kcal counter running. */
+    private fun realisticSession(): SessionSummary {
         val sm = SessionStateMachine(smallPlan, SessionMode.INTERVAL)
-        var t = 1_791_924_436_369L; var d = 0; var k = 0
+        var t = 1_791_924_436_369L; var d = 500; var k = 0
         sm.start(t)
-        repeat(130) { i ->
-            t += 1000; d += 4; k++
+        repeat(115) { i ->
+            t += if (i % 7 == 6) 1300 else 1125; d += 5; k++
             sm.setHeartRate(if (i in 40..45) 0 else 100 + i / 2) // a short dropout with zeros
-            sm.onData(sample(t, d, k))
+            sm.onData(sample(t, d, k).copy(totalEnergyKcal = 300 + i / 4, strokeRatePerMin = 29.5f))
         }
-        val summary = sm.finish()
+        return sm.finish()
+    }
+
+    @Test fun fit_resampledToOneRecordPerSecond() {
+        val s = realisticSession()
+        val secs = FitWriter.resample(s)
+        assertEquals(s.totalDurationSec + 1, secs.size)            // no missing seconds any more
+        for (i in 1 until secs.size) assertTrue(secs[i].distM >= secs[i - 1].distM)
+        assertEquals(s.totalDistanceM.toDouble(), secs.last().distM, 6.0)
+        assertTrue(secs.all { it.hr == null || it.hr!! > 0 })
+    }
+
+    @Test fun energy_fromMonitorCounter_andCounterResetIgnored() {
+        assertEquals(28, realisticSession().totalEnergyKcal)        // 300 -> 328
+        val sm = SessionStateMachine(listOf(PhaseSpec(PhaseType.MAIN, "T", targetTimeSec = 3600), PhaseSpec(PhaseType.FREE, "F")), SessionMode.TIME)
+        var t = 0L; var d = 0; var k = 0
+        sm.start(t)
+        val kcal = listOf(50, 51, 52, 52, 0, 1, 2, 3) // monitor reset after the 4th sample
+        kcal.forEach { e -> t += 1000; d += 4; k++; sm.onData(sample(t, d, k).copy(totalEnergyKcal = e)) }
+        assertEquals(5, sm.finish().totalEnergyKcal)                // 2 + 3, the jump 52 -> 0 ignored
+    }
+
+    @Test fun energy_estimatedWhenMonitorSendsNone() {
+        val sm = SessionStateMachine(listOf(PhaseSpec(PhaseType.MAIN, "T", targetTimeSec = 3600), PhaseSpec(PhaseType.FREE, "F")), SessionMode.TIME)
+        var t = 0L; var d = 0; var k = 0
+        sm.start(t)
+        repeat(3600) { t += 1000; d += 4; k++; sm.onData(sample(t, d, k)) } // 150 W, energy always 0
+        assertEquals(816.0, sm.finish().totalEnergyKcal.toDouble(), 3.0)  // 4*0.8604*150 + 300 per hour
+    }
+
+    @Test fun linkQuality_silentBeforeFirstStroke_isJudgedByRssiOnly() {
+        val q = com.n44r.app.ble.LinkQualityTracker(1200L)
+        q.reset(0L)
+        for (s in 0..60 step 2) q.onRssi(-42, s * 1000L)
+        val waiting = q.snapshot(60_000L)
+        assertTrue(waiting.awaitingData)
+        assertEquals(com.n44r.app.ble.SignalLevel.GOOD, waiting.level)
+        assertEquals("-42 dBm · Daten ab dem ersten Schlag · gut", waiting.describe("Daten ab dem ersten Schlag"))
+        // first stroke at 60 s, then a packet every 1.15 s: 6 s later the rate must not be diluted
+        var t = 60_000L
+        while (t <= 66_000L) { q.onPacket(t); t += 1150 }
+        val rowing = q.snapshot(66_100L)
+        assertFalse(rowing.awaitingData)
+        assertTrue("rate ${rowing.packetRatePct}", rowing.packetRatePct!! >= 90)
+        assertEquals(com.n44r.app.ble.SignalLevel.GOOD, rowing.level)
+    }
+
+    @Test fun writeFitForExternalValidation() {
+        val summary = realisticSession()
         val out = File(System.getProperty("java.io.tmpdir"), "n44r_test.fit")
         FitWriter.write(out, summary)
         println("FIT written: ${out.absolutePath} (${out.length()} bytes)")

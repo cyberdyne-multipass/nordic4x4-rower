@@ -35,6 +35,8 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
     companion object {
         const val MIN_VALID_BPM = 30
         const val MAX_VALID_BPM = 230
+        /** BLE jitter allowance for the duplicate-packet filter (see onCharacteristicChanged). */
+        const val DUPLICATE_SLACK_MS = 150
         private const val SCAN_WINDOW_MS = 12_000L
         private const val PREFERRED_WAIT_MS = 6_000L
         private const val SCAN_PAUSE_MS = 3_000L
@@ -368,16 +370,19 @@ class HeartRateBleManager(private val context: Context, private val rawLog: RawL
             val m = HeartRateParser.parse(raw) ?: return
             val now = System.currentTimeMillis()
             lastPacketMs = now
-            qualityTracker.onPacket(now)
-            // NOTE: no fixed expected rate for HR - the HeartCast bridge also reports a skin-contact
-            // flag but sends only every ~2.5 s; packet flow is judged by gaps instead (LinkQuality)
-            // The HRM 600 sends every measurement twice (~0.5 s apart, identical bytes). A real
-            // next beat can't arrive before its own RR interval has elapsed, so an identical packet
-            // within 75 % of that interval is a duplicate -> don't log its RR values again.
+            // The HRM 600 sends every measurement twice (~0.45-0.72 s apart, identical bytes). A real
+            // next beat arrives about one RR interval after the previous one (plus BLE jitter), so an
+            // identical packet within RR + 150 ms of the FIRST copy is a duplicate. (Real beats with a
+            // bit-identical RR and bpm are rare; losing one of those costs less than doubled RRs.
+            // The old 75 % rule let ~20 duplicates per workout through.)
             val lastRr = m.rrMs.lastOrNull()
             val duplicate = lastRr != null && lastRaw?.contentEquals(raw) == true &&
-                now - lastRawMs < maxOf(lastRr, 1) * 3 / 4
-            lastRaw = raw.copyOf(); lastRawMs = now
+                now - lastRawMs < lastRr + DUPLICATE_SLACK_MS
+            if (!duplicate) { lastRaw = raw.copyOf(); lastRawMs = now }
+            // quality judges unique packets only - otherwise the strap showed "Paket alle 0,5 s"
+            // NOTE: no fixed expected rate for HR - the HeartCast bridge also reports a skin-contact
+            // flag but sends only every ~2.5 s; packet flow is judged by gaps instead (LinkQuality)
+            if (!duplicate) qualityTracker.onPacket(now)
             // Straps without contact bits (HRM 600) still give themselves away via their RR
             // intervals when they lose skin contact -> plausibility check (see HrPlausibility)
             val trusted = if (duplicate) lastTrusted else plausibility.check(m.bpm, m.rrMs).also { lastTrusted = it }

@@ -47,7 +47,9 @@ fun WaitingScreen(vm: MainViewModel) {
         Text("Rudergerät: ", style = MaterialTheme.typography.labelMedium)
         ConnectionBadge(rowerState)
         val rowerQ by vm.rowerBle.quality.collectAsState()
-        if (connected) SignalBars("Signal", rowerQ, showDetails = true, fontSize = 14)
+        // the ComModule only sends from the first stroke on -> say so instead of "0 % Pakete"
+        if (connected) SignalBars("Signal", rowerQ, showDetails = true, fontSize = 14,
+            awaitingText = "Daten ab dem ersten Schlag")
         if (hrEnabled) {
             Spacer(Modifier.height(8.dp))
             Text("Herzfrequenz: ", style = MaterialTheme.typography.labelMedium)

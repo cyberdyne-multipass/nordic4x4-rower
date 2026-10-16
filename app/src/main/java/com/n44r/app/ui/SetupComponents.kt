@@ -29,7 +29,10 @@ fun ConnectionBadge(state: ConnectionState) {
 
 /** Three-bar signal indicator (like a phone's reception bars) with an optional label. */
 @Composable
-fun SignalBars(label: String, quality: LinkQuality, showDetails: Boolean = false, fontSize: Int = 12) {
+fun SignalBars(
+    label: String, quality: LinkQuality, showDetails: Boolean = false, fontSize: Int = 12,
+    awaitingText: String = "noch keine Daten"
+) {
     val bars = when (quality.level) {
         SignalLevel.GOOD -> 3; SignalLevel.OK -> 2; SignalLevel.WEAK -> 1; SignalLevel.NONE -> 0
     }
@@ -42,7 +45,7 @@ fun SignalBars(label: String, quality: LinkQuality, showDetails: Boolean = false
         for (i in 1..3) {
             Box(Modifier.width(5.dp).height((4 + i * 4).dp).background(if (i <= bars) color else Color(0x44FFFFFF)))
         }
-        if (showDetails) Text("  " + quality.describe(), color = color, fontSize = fontSize.sp)
+        if (showDetails) Text("  " + quality.describe(awaitingText), color = color, fontSize = fontSize.sp)
     }
 }
 

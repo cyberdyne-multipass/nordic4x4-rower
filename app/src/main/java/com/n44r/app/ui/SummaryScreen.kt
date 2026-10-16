@@ -30,6 +30,7 @@ fun SummaryScreen(vm: MainViewModel) {
             StatText("Ø Split", formatPace(s.avgPaceSecPer500m))
             StatText("Ø Power", "${s.avgPowerW} W")
             s.maxHeartRateBpm?.let { StatText("Max. HF", "$it bpm") }
+            if (s.totalEnergyKcal > 0) StatText("Energie", "${s.totalEnergyKcal} kcal")
         }
         Spacer(Modifier.height(16.dp))
 
