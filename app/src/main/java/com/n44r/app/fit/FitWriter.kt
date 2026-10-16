@@ -134,8 +134,20 @@ object FitWriter {
             val speed = r.paceSecPer500m?.takeIf { it > 0 }?.let { 500.0 / it }?.coerceAtMost(10.0) ?: 0.0
             out.add(Sec(dist, speed, r.powerW.coerceAtLeast(0), r.strokeRate, hr[j]))
         }
-        return out
+        // The S4 reports distance in bursts per stroke (2026-10-15: 6165 -> 6176 m within 1.1 s at a
+        // steady 1:40 pace). Strava derives speed from the distance stream, so the raw steps made
+        // a jagged speed graph and a fake max of 1:20/500 m. Centered moving average over
+        // 2*[DIST_SMOOTH_HALF] + 1 s (~3 strokes): stays monotonic, start and end values unchanged.
+        val raw = out.map { it.distM }
+        return out.mapIndexed { i, s ->
+            val h = minOf(DIST_SMOOTH_HALF, i, raw.lastIndex - i)
+            var sum = 0.0
+            for (k in i - h..i + h) sum += raw[k]
+            Sec(sum / (2 * h + 1), s.speedMps, s.powerW, s.spm, s.hr)
+        }
     }
+
+    private const val DIST_SMOOTH_HALF = 3
 
     private fun kcalWeight(s: Sec) = (4 * 0.8604 * s.powerW + 300) / 3600.0
 

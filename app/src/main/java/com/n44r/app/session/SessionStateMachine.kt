@@ -261,11 +261,17 @@ class SessionStateMachine(val plan: List<PhaseSpec>, val mode: SessionMode) {
         if (!timeUp && !distanceUp) return
         if (phase.type == PhaseType.FREE) return // never auto-advances
 
+        // Samples come every ~1.15 s, so a timed phase ends up to ~1 s late. That overshoot is
+        // carried into the next phase: laps are exactly 4:00 instead of 4:01 (Strava 2026-10-15
+        // showed 4:01/4:01/4:00/4:00 and a 49 s last lap for 45 s of rowing).
+        val overshootMs = if (timeUp && phase.targetTimeSec != null)
+            (phaseElapsedMs - phase.targetTimeSec * 1000L).coerceIn(0L, 5_000L) else 0L
+        phaseElapsedMs -= overshootMs
         laps.add(lapFor(phase, dist))
         if (currentPhaseIndex < plan.lastIndex) currentPhaseIndex++
         liveLaps.value = laps.toList()
         phaseStartDistanceM = dist
-        phaseElapsedMs = 0
+        phaseElapsedMs = overshootMs
         splitTracker.reset(dist, sessionElapsedMs)
     }
 

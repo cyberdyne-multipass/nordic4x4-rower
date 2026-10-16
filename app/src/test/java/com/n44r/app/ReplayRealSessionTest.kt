@@ -54,6 +54,14 @@ class ReplayRealSessionTest {
         println("FIT: $out")
         assertEquals(8051.0, s.totalDistanceM.toDouble(), 5.0)
         assertTrue("kcal ${s.totalEnergyKcal}", s.totalEnergyKcal in 380..440)
-        assertEquals(s.totalDurationSec + 1, FitWriter.resample(s).size)
+        val secs = FitWriter.resample(s)
+        assertEquals(s.totalDurationSec + 1, secs.size)
+        // timed laps exactly on target (overshoot carried into the next phase), laps add up
+        assertEquals(listOf(300, 240, 180, 240, 180, 240, 180, 240, 300), s.laps.dropLast(1).map { it.durationSec })
+        assertEquals(s.totalDurationSec.toDouble(), s.laps.sumOf { it.durationSec }.toDouble(), 1.0)
+        // smoothed distance: no 1-s speed spikes far above the fastest real pace (~1:38/500 m)
+        val maxKmh = (1 until secs.size).maxOf { secs[it].distM - secs[it - 1].distM } * 3.6
+        println("max distance-derived speed: %.1f km/h".format(maxKmh))
+        assertTrue("max $maxKmh km/h", maxKmh < 21.0)
     }
 }
